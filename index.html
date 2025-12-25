@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pencil Recorder FINAL (A3 + Clamp + WS + IK + Preprocess + Export)</title>
+  <title>Pencil Recorder FINAL (A3 Rotate + Visible Ink Fix + Base Outside + WS Clamp + IK θ + Export)</title>
   <style>
     :root { --bg:#fff; --fg:#111; --muted:#666; --bd:#ddd; }
     body { margin:0; font-family:-apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
@@ -22,13 +22,16 @@
     button{ cursor:pointer; }
     .group{ display:flex; gap:8px; align-items:center; padding:6px 8px; border:1px solid var(--bd); border-radius:12px; }
     .group label{ font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
-    .group input[type="number"]{ width:82px; padding:6px; border:1px solid var(--bd); border-radius:8px; }
-    .group input[type="range"]{ width:120px; }
+    .group input[type="number"]{ width:90px; padding:6px; border:1px solid var(--bd); border-radius:8px; }
+    .group input[type="range"]{ width:140px; }
     .title{ font-size:12px; color:var(--muted); }
     #info{ font-size:12px; color:var(--muted); }
     .stage{ position:relative; width:100%; height:calc(100vh - 86px); }
-    canvas{ position:absolute; left:0; top:0; width:100%; height:100%; background:#fff; }
-    #overlay{ pointer-events:none; }
+
+    /* ✅ 중요: overlay가 흰 배경으로 잉크를 덮지 않도록 분리 */
+    canvas{ position:absolute; left:0; top:0; width:100%; height:100%; }
+    #ink{ background:#fff; }
+    #overlay{ background:transparent; pointer-events:none; }
   </style>
 </head>
 <body>
@@ -39,6 +42,7 @@
     <div class="group">
       <label><input id="penOnly" type="checkbox" checked>Pen only</label>
       <label><input id="lockA3" type="checkbox" checked>Lock A3 frame</label>
+      <label><input id="a3Landscape" type="checkbox">A3 가로</label>
       <label><input id="clampFrame" type="checkbox" checked>Clamp frame</label>
       <label><input id="showFrame" type="checkbox" checked>Show frame</label>
     </div>
@@ -52,15 +56,21 @@
     </div>
 
     <div class="group">
+      <span class="title">Base(프레임 기준):</span>
+      <label>u <input id="baseU" type="number" value="0.50" step="0.01" min="-1" max="2"></label>
+      <label>v <input id="baseV" type="number" value="1.12" step="0.01" min="-1" max="3"></label>
+    </div>
+
+    <div class="group">
       <span class="title">Links(px):</span>
-      <label>l1 <input id="l1" type="number" value="220" min="10" step="1"></label>
-      <label>l2 <input id="l2" type="number" value="180" min="10" step="1"></label>
-      <label>l3 <input id="l3" type="number" value="140" min="10" step="1"></label>
+      <label>l1 <input id="l1" type="number" value="260" min="10" step="1"></label>
+      <label>l2 <input id="l2" type="number" value="220" min="10" step="1"></label>
+      <label>l3 <input id="l3" type="number" value="180" min="10" step="1"></label>
     </div>
 
     <div class="group">
       <span class="title">IK:</span>
-      <label>iters <input id="ikIters" type="number" value="10" min="1" step="1"></label>
+      <label>iters <input id="ikIters" type="number" value="12" min="1" step="1"></label>
       <label>λ <input id="ikLambda" type="number" value="12" min="0" step="1"></label>
     </div>
 
@@ -86,7 +96,7 @@
       <span class="title">Export:</span>
       <button id="exportCleanJson">CLEAN strokes.json</button>
       <button id="exportJsonl">JSONL sequence</button>
-      <button id="exportA3Png">A3 PNG (3508×4961)</button>
+      <button id="exportA3Png">A3 PNG</button>
     </div>
 
     <div class="group">
@@ -94,7 +104,7 @@
       <input id="importJson" type="file" accept=".json,application/json">
     </div>
 
-    <div id="info">A3 프레임 기준 u,v(0..1) + (선택)θ 저장. 전처리/PNG/JSONL까지 한 파일.</div>
+    <div id="info">A3 회전 + 베이스 캔버스 밖(기본 v=1.12) + overlay 투명 처리(선 보임) + IK θ 저장.</div>
   </div>
 
   <div class="stage">
@@ -104,10 +114,9 @@
 
 <script>
 (() => {
-  // ====== A3 constants ======
-  const A3_RATIO = 297 / 420; // portrait
-  const A3_W = 3508;
-  const A3_H = 4961;
+  // ====== A3 spec (portrait/landscape) ======
+  const A3_PORTRAIT  = { mmW: 297, mmH: 420, pxW: 3508, pxH: 4961, ratio: 297/420, orientation: "portrait" };
+  const A3_LANDSCAPE = { mmW: 420, mmH: 297, pxW: 4961, pxH: 3508, ratio: 420/297, orientation: "landscape" };
 
   // ====== DOM ======
   const ink = document.getElementById("ink");
@@ -119,6 +128,7 @@
   const ui = {
     penOnly: document.getElementById("penOnly"),
     lockA3: document.getElementById("lockA3"),
+    a3Landscape: document.getElementById("a3Landscape"),
     clampFrame: document.getElementById("clampFrame"),
     showFrame: document.getElementById("showFrame"),
 
@@ -126,6 +136,9 @@
     clampWS: document.getElementById("clampWS"),
     showArm: document.getElementById("showArm"),
     saveTheta: document.getElementById("saveTheta"),
+
+    baseU: document.getElementById("baseU"),
+    baseV: document.getElementById("baseV"),
 
     l1: document.getElementById("l1"),
     l2: document.getElementById("l2"),
@@ -149,7 +162,6 @@
     importJson: document.getElementById("importJson"),
   };
 
-  // S-pen 버튼 등으로 contextmenu 떠서 끊기는 문제 방지
   ink.addEventListener("contextmenu", (e)=>e.preventDefault(), {passive:false});
 
   // ====== helpers ======
@@ -161,6 +173,10 @@
     if (typeof e.pressure === "number") return e.pressure;
     if (typeof e.force === "number") return e.force;
     return 0.5;
+  }
+
+  function a3Spec(){
+    return ui.a3Landscape.checked ? A3_LANDSCAPE : A3_PORTRAIT;
   }
 
   function linkLengths(){
@@ -178,19 +194,24 @@
   let dpr = 1;
   let viewW = 0, viewH = 0;
   let drawRect = {x:0,y:0,w:0,h:0};
-  // base inside frame: bottom-center-ish
-  const baseUV = { u: 0.5, v: 0.88 };
+
+  // 베이스: 프레임 기준 u,v (v>1이면 프레임 바깥 아래)
+  let baseUV = { u: 0.5, v: 1.12 };
   let baseCss = { x:0, y:0 };
 
   function computeDrawRect(w,h){
     if (!ui.lockA3.checked) return {x:0,y:0,w:w,h:h};
+    const ratio = a3Spec().ratio;
     let hh = h;
-    let ww = hh * A3_RATIO;
-    if (ww > w){ ww = w; hh = ww / A3_RATIO; }
+    let ww = hh * ratio;
+    if (ww > w){ ww = w; hh = ww / ratio; }
     return { x:(w-ww)*0.5, y:(h-hh)*0.5, w:ww, h:hh };
   }
 
   function updateBase(){
+    // baseUV는 프레임 좌표계 기준 (u,v) -> baseCss로 변환
+    baseUV.u = Number(ui.baseU.value);
+    baseUV.v = Number(ui.baseV.value);
     baseCss.x = drawRect.x + drawRect.w * baseUV.u;
     baseCss.y = drawRect.y + drawRect.h * baseUV.v;
   }
@@ -259,11 +280,11 @@
 
   function ikSolve(targetX,targetY,theta0){
     const [l1,l2,l3] = linkLengths();
-    const iters = clamp(Number(ui.ikIters.value)||10, 1, 200);
+    const iters = clamp(Number(ui.ikIters.value)||12, 1, 300);
     const lambda = Math.max(0, Number(ui.ikLambda.value)||0);
 
     let th = theta0.slice();
-    const lim = Math.PI;
+    const lim = Math.PI; // 간단 제한
     const clampAngles = ()=>{
       th[0]=clamp(th[0],-lim,lim);
       th[1]=clamp(th[1],-lim,lim);
@@ -307,7 +328,7 @@
     return th;
   }
 
-  // ====== canvases resize ======
+  // ====== canvas resize ======
   function setCanvasSize(c){
     c.width = Math.floor(viewW * dpr);
     c.height = Math.floor(viewH * dpr);
@@ -319,40 +340,17 @@
     context.setTransform(dpr,0,0,dpr,0,0);
   }
 
-  function resize(){
-    dpr = window.devicePixelRatio || 1;
-    viewW = window.innerWidth;
-    viewH = window.innerHeight - document.querySelector(".bar").offsetHeight;
-
-    setCanvasSize(ink);
-    setCanvasSize(ov);
-    applyTransform(ctx);
-    applyTransform(g);
-
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 2.25;
-    ctx.strokeStyle = "#000";
-
-    drawRect = computeDrawRect(viewW, viewH);
-    updateBase();
-
-    redrawAllInk();
-    redrawOverlay();
-  }
-
-  window.addEventListener("resize", resize);
-
-  // ====== overlay drawing (frame/workspace/arm) ======
+  // ====== overlay drawing ======
   let lastAngles = [0,0,0];
 
   function redrawOverlay(){
+    applyTransform(g);
     g.clearRect(0,0,viewW,viewH);
 
-    // frame mask
+    // frame mask (overlay transparent이므로 회색 마스크만 그려서 프레임을 강조)
     if (ui.showFrame.checked){
       g.save();
-      g.fillStyle = "#f3f3f3";
+      g.fillStyle = "rgba(240,240,240,0.92)";
       // left
       g.fillRect(0,0,drawRect.x,viewH);
       // right
@@ -407,17 +405,21 @@
     }
   }
 
-  // ====== ink redraw (full) ======
+  // ====== ink data + redraw ======
   let strokes = []; // [{points:[{x,y,u,v,t,p,theta?}], ...}]
   let current = null;
   let lastKept = null;
   let lastRaw = null;
 
   function redrawAllInk(){
+    applyTransform(ctx);
     ctx.clearRect(0,0,viewW,viewH);
     ctx.save();
     ctx.lineWidth = 2.25;
     ctx.strokeStyle = "#000";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
     for (const s of strokes){
       const pts = s.points || [];
       for (let i=1;i<pts.length;i++){
@@ -430,7 +432,34 @@
     ctx.restore();
   }
 
+  function resize(){
+    dpr = window.devicePixelRatio || 1;
+    viewW = window.innerWidth;
+    viewH = window.innerHeight - document.querySelector(".bar").offsetHeight;
+
+    setCanvasSize(ink);
+    setCanvasSize(ov);
+
+    applyTransform(ctx);
+    applyTransform(g);
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 2.25;
+    ctx.strokeStyle = "#000";
+
+    drawRect = computeDrawRect(viewW, viewH);
+    updateBase();
+
+    redrawAllInk();
+    redrawOverlay();
+  }
+
+  window.addEventListener("resize", resize);
+
   // ====== record pipeline ======
+  const ema = (prev, next, alpha)=> prev + alpha*(next - prev);
+
   function shouldKeepPoint(prev, next){
     if (!prev) return true;
     if (!ui.recResample.checked) return true;
@@ -439,8 +468,6 @@
     const dy = next.y - prev.y;
     return (dx*dx + dy*dy) >= step*step;
   }
-
-  function ema(prev, next, alpha){ return prev + alpha*(next - prev); }
 
   function processSample(sample){
     let {x,y,t,p} = sample;
@@ -475,7 +502,7 @@
 
     current.points.push(pt);
 
-    // draw incremental ink
+    // incremental draw
     if (lastKept){
       ctx.beginPath();
       ctx.moveTo(lastKept.x, lastKept.y);
@@ -484,7 +511,6 @@
     }
     lastKept = pt;
 
-    // update overlay only (cheap)
     redrawOverlay();
   }
 
@@ -558,22 +584,33 @@
   function buildMeta(){
     const [l1,l2,l3] = linkLengths();
     const {rMin,rMax} = reachRadii(l1,l2,l3);
+    const spec = a3Spec();
+
     return {
       createdAt: new Date().toISOString(),
       devicePixelRatio: dpr,
       canvasCss: { width: viewW, height: viewH },
       drawRectCss: drawRect,
-      a3: { mm:{w:297,h:420}, dpiTarget:300, pxTarget:{w:A3_W,h:A3_H} },
+
+      a3: {
+        orientation: spec.orientation,
+        mm: { w: spec.mmW, h: spec.mmH },
+        dpiTarget: 300,
+        pxTarget: { w: spec.pxW, h: spec.pxH }
+      },
+
       arm: {
         linksPx: { l1,l2,l3 },
         workspace: { rMin, rMax },
         baseUV: { ...baseUV },
         baseCss: { ...baseCss },
-        baseA3Px: { x: Math.round(baseUV.u*(A3_W-1)), y: Math.round(baseUV.v*(A3_H-1)) }
+        note: "baseUV는 프레임 기준이며 v>1이면 프레임 바깥 아래 위치"
       },
+
       settings: {
         penOnly: ui.penOnly.checked,
         lockA3: ui.lockA3.checked,
+        a3Landscape: ui.a3Landscape.checked,
         clampFrame: ui.clampFrame.checked,
         showFrame: ui.showFrame.checked,
         showWS: ui.showWS.checked,
@@ -617,12 +654,12 @@
     lastKept = null;
     lastRaw = null;
     lastAngles = [0,0,0];
-    ctx.clearRect(0,0,viewW,viewH);
+    redrawAllInk();
     redrawOverlay();
     info.textContent = "cleared";
   };
 
-  // ====== preprocess (smooth + resample in UV, keeping theta when present) ======
+  // ====== preprocess (smooth + resample in UV, keeping theta) ======
   function uvDist(a,b){
     const du=a.u-b.u, dv=a.v-b.v;
     return Math.hypot(du,dv);
@@ -636,7 +673,7 @@
       const lo = Math.max(0, i-half);
       const hi = Math.min(points.length, i+half+1);
       let su=0, sv=0, sp=0, st=0, n=0;
-      let sth = null; // [sum,sum,sum]
+      let sth = null;
       for (let j=lo;j<hi;j++){
         const p = points[j];
         su += p.u; sv += p.v;
@@ -656,10 +693,11 @@
     return out;
   }
 
-  // resample in UV with step in A3 pixels
   function resampleByStep(points, stepA3Px){
     if (points.length < 2) return points;
-    const stepUV = stepA3Px / Math.max(A3_W, A3_H);
+
+    const spec = a3Spec();
+    const stepUV = stepA3Px / Math.max(spec.pxW, spec.pxH);
 
     const kept = [points[0]];
     let acc = 0;
@@ -704,7 +742,6 @@
     for (const s of strokes){
       let pts = (s.points||[]).map(p=>({ ...p }));
 
-      // ensure u,v
       for (const p of pts){
         if (typeof p.u !== "number" || typeof p.v !== "number"){
           const uv = toUV(p.x, p.y);
@@ -730,7 +767,6 @@
     downloadJSON(cleaned, "strokes_clean.json");
   };
 
-  // obs(u,v,p,theta?) -> act(du,dv, pen)
   document.getElementById("exportJsonl").onclick = ()=>{
     const cleaned = preprocessCurrent();
     const S = cleaned.strokes || [];
@@ -768,23 +804,26 @@
   };
 
   function uvToA3Px(u,v){
-    return { x: Math.round(u*(A3_W-1)), y: Math.round(v*(A3_H-1)) };
+    const spec = a3Spec();
+    return { x: Math.round(u*(spec.pxW-1)), y: Math.round(v*(spec.pxH-1)) };
   }
 
   document.getElementById("exportA3Png").onclick = ()=>{
     const cleaned = preprocessCurrent();
+    const spec = a3Spec();
 
     const off = document.createElement("canvas");
-    off.width = A3_W; off.height = A3_H;
+    off.width = spec.pxW;
+    off.height = spec.pxH;
     const h = off.getContext("2d");
 
     h.fillStyle = "#fff";
-    h.fillRect(0,0,A3_W,A3_H);
+    h.fillRect(0,0,spec.pxW,spec.pxH);
 
     h.lineCap = "round";
     h.lineJoin = "round";
     h.strokeStyle = "#000";
-    h.lineWidth = 3; // 출력 선 굵기(px)
+    h.lineWidth = 3;
 
     for (const s of (cleaned.strokes||[])){
       const pts = s.points || [];
@@ -801,13 +840,13 @@
 
     off.toBlob((blob)=>{
       if (!blob) return;
-      downloadBlob(blob, "render_A3_3508x4961.png");
+      const name = `render_A3_${spec.orientation}_${spec.pxW}x${spec.pxH}.png`;
+      downloadBlob(blob, name);
     }, "image/png");
   };
 
   // ====== import ======
   function ensureUVForImported(data){
-    // If u,v missing, try infer from meta.drawRectCss (old versions)
     const meta = data.meta || {};
     const dr = meta.drawRectCss;
     if (!dr) return data;
@@ -834,7 +873,6 @@
 
     data = ensureUVForImported(data);
 
-    // display on current frame: u,v -> x,y
     const imported = [];
     for (const s of (data.strokes||[])){
       const pts = (s.points||[]).map(p=>{
@@ -853,7 +891,6 @@
     strokes = imported;
     current = null; lastKept=null; lastRaw=null;
 
-    // set lastAngles to last theta if present
     lastAngles = [0,0,0];
     for (let i=strokes.length-1;i>=0;i--){
       const pts = strokes[i].points || [];
@@ -868,16 +905,20 @@
     ui.importJson.value = "";
   });
 
-  // ====== reactive overlay updates ======
-  [
-    "lockA3","showFrame",
+  // ====== reactive updates ======
+  const reflowIds = [
+    "lockA3","a3Landscape","showFrame",
     "showWS","clampWS","showArm","saveTheta",
-    "l1","l2","l3","ikIters","ikLambda"
-  ].forEach(id=>{
+    "baseU","baseV",
+    "l1","l2","l3",
+    "ikIters","ikLambda"
+  ];
+  reflowIds.forEach(id=>{
     document.getElementById(id).addEventListener("change", ()=>{
       drawRect = computeDrawRect(viewW, viewH);
       updateBase();
       redrawOverlay();
+      redrawAllInk();
     });
   });
 
