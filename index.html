@@ -3,216 +3,248 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pencil Recorder (Workspace + Clamp + Resample + Smooth + IK)</title>
+  <title>Pencil Recorder FINAL (A3 + Clamp + WS + IK + Preprocess + Export)</title>
   <style>
     :root { --bg:#fff; --fg:#111; --muted:#666; --bd:#ddd; }
     body { margin:0; font-family:-apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-    .bar {
-      position: sticky; top:0; z-index:10;
+    .bar{
+      position:sticky; top:0; z-index:20;
       background:rgba(255,255,255,0.95);
       backdrop-filter:saturate(180%) blur(10px);
       border-bottom:1px solid var(--bd);
       padding:10px;
       display:flex; gap:10px; flex-wrap:wrap; align-items:center;
     }
-    button {
+    button, input[type="file"]::file-selector-button{
       padding:10px 12px; border:1px solid #ccc; background:#fff; border-radius:10px;
+      font:inherit;
     }
-    .group { display:flex; gap:8px; align-items:center; padding:6px 8px; border:1px solid var(--bd); border-radius:12px; }
-    .group label { font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
-    .group input[type="number"] { width:80px; padding:6px; border:1px solid var(--bd); border-radius:8px; }
-    .group input[type="range"] { width:120px; }
-    #info { font-size:12px; color:var(--muted); }
-    canvas { display:block; touch-action:none; background:#fff; }
-    .pill { font-size:12px; color:var(--muted); }
+    button{ cursor:pointer; }
+    .group{ display:flex; gap:8px; align-items:center; padding:6px 8px; border:1px solid var(--bd); border-radius:12px; }
+    .group label{ font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
+    .group input[type="number"]{ width:82px; padding:6px; border:1px solid var(--bd); border-radius:8px; }
+    .group input[type="range"]{ width:120px; }
+    .title{ font-size:12px; color:var(--muted); }
+    #info{ font-size:12px; color:var(--muted); }
+    .stage{ position:relative; width:100%; height:calc(100vh - 86px); }
+    canvas{ position:absolute; left:0; top:0; width:100%; height:100%; background:#fff; }
+    #overlay{ pointer-events:none; }
   </style>
 </head>
 <body>
   <div class="bar">
     <button id="clear">Clear</button>
-    <button id="download">Download JSON</button>
+    <button id="downloadRaw">Download RAW strokes.json</button>
 
     <div class="group">
       <label><input id="penOnly" type="checkbox" checked>Pen only</label>
-      <label><input id="showArm" type="checkbox" checked>Show arm</label>
-      <label><input id="showWS" type="checkbox" checked>Workspace</label>
+      <label><input id="lockA3" type="checkbox" checked>Lock A3 frame</label>
+      <label><input id="clampFrame" type="checkbox" checked>Clamp frame</label>
+      <label><input id="showFrame" type="checkbox" checked>Show frame</label>
     </div>
 
     <div class="group">
-      <span class="pill">Links(px):</span>
+      <span class="title">Arm/WS:</span>
+      <label><input id="showWS" type="checkbox" checked>Workspace</label>
+      <label><input id="clampWS" type="checkbox" checked>Clamp WS</label>
+      <label><input id="showArm" type="checkbox" checked>Show arm</label>
+      <label><input id="saveTheta" type="checkbox" checked>Save θ</label>
+    </div>
+
+    <div class="group">
+      <span class="title">Links(px):</span>
       <label>l1 <input id="l1" type="number" value="220" min="10" step="1"></label>
       <label>l2 <input id="l2" type="number" value="180" min="10" step="1"></label>
       <label>l3 <input id="l3" type="number" value="140" min="10" step="1"></label>
-      <label><input id="clampWS" type="checkbox" checked>Clamp</label>
     </div>
 
     <div class="group">
-      <label><input id="resample" type="checkbox" checked>Resample</label>
-      <label>step(px) <input id="stepPx" type="number" value="2" min="1" step="1"></label>
-      <label><input id="smooth" type="checkbox" checked>Smooth</label>
-      <label>α <input id="alpha" type="range" min="0" max="1" step="0.01" value="0.35"></label>
-    </div>
-
-    <div class="group">
-      <label><input id="speedLimit" type="checkbox" checked>Speed limit</label>
-      <label>px/s <input id="maxSpeed" type="number" value="2500" min="100" step="50"></label>
-    </div>
-
-    <div class="group">
-      <label><input id="saveTheta" type="checkbox" checked>Save θ (IK)</label>
-      <label>IK iters <input id="ikIters" type="number" value="10" min="1" step="1"></label>
+      <span class="title">IK:</span>
+      <label>iters <input id="ikIters" type="number" value="10" min="1" step="1"></label>
       <label>λ <input id="ikLambda" type="number" value="12" min="0" step="1"></label>
     </div>
 
-    <div id="info">Draw with pen. Saves (x,y,t,p) + optional θ1..θ3 per point.</div>
+    <div class="group">
+      <span class="title">Record:</span>
+      <label><input id="recSpeedLimit" type="checkbox" checked>Speed limit</label>
+      <label>px/s <input id="recMaxSpeed" type="number" value="2500" min="100" step="50"></label>
+      <label><input id="recResample" type="checkbox" checked>Resample</label>
+      <label>step(px) <input id="recStepPx" type="number" value="2" min="1" step="1"></label>
+      <label><input id="recSmooth" type="checkbox" checked>Smooth</label>
+      <label>α <input id="recAlpha" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+    </div>
+
+    <div class="group">
+      <span class="title">Preprocess:</span>
+      <label><input id="ppResample" type="checkbox" checked>Resample</label>
+      <label>step(A3px) <input id="ppStep" type="number" value="8" min="1" step="1"></label>
+      <label><input id="ppSmooth" type="checkbox" checked>Smooth</label>
+      <label>k <input id="ppK" type="number" value="5" min="1" step="2"></label>
+    </div>
+
+    <div class="group">
+      <span class="title">Export:</span>
+      <button id="exportCleanJson">CLEAN strokes.json</button>
+      <button id="exportJsonl">JSONL sequence</button>
+      <button id="exportA3Png">A3 PNG (3508×4961)</button>
+    </div>
+
+    <div class="group">
+      <span class="title">Import:</span>
+      <input id="importJson" type="file" accept=".json,application/json">
+    </div>
+
+    <div id="info">A3 프레임 기준 u,v(0..1) + (선택)θ 저장. 전처리/PNG/JSONL까지 한 파일.</div>
   </div>
 
-  <canvas id="c"></canvas>
+  <div class="stage">
+    <canvas id="ink"></canvas>
+    <canvas id="overlay"></canvas>
+  </div>
 
 <script>
 (() => {
-  const canvas = document.getElementById("c");
-  const ctx = canvas.getContext("2d", { desynchronized: true });
+  // ====== A3 constants ======
+  const A3_RATIO = 297 / 420; // portrait
+  const A3_W = 3508;
+  const A3_H = 4961;
+
+  // ====== DOM ======
+  const ink = document.getElementById("ink");
+  const ov  = document.getElementById("overlay");
+  const ctx = ink.getContext("2d", { desynchronized:true });
+  const g   = ov.getContext("2d",  { desynchronized:true });
   const info = document.getElementById("info");
 
-  // UI
   const ui = {
     penOnly: document.getElementById("penOnly"),
-    showArm: document.getElementById("showArm"),
+    lockA3: document.getElementById("lockA3"),
+    clampFrame: document.getElementById("clampFrame"),
+    showFrame: document.getElementById("showFrame"),
+
     showWS: document.getElementById("showWS"),
     clampWS: document.getElementById("clampWS"),
-    resample: document.getElementById("resample"),
-    stepPx: document.getElementById("stepPx"),
-    smooth: document.getElementById("smooth"),
-    alpha: document.getElementById("alpha"),
-    speedLimit: document.getElementById("speedLimit"),
-    maxSpeed: document.getElementById("maxSpeed"),
+    showArm: document.getElementById("showArm"),
     saveTheta: document.getElementById("saveTheta"),
-    ikIters: document.getElementById("ikIters"),
-    ikLambda: document.getElementById("ikLambda"),
+
     l1: document.getElementById("l1"),
     l2: document.getElementById("l2"),
     l3: document.getElementById("l3"),
+
+    ikIters: document.getElementById("ikIters"),
+    ikLambda: document.getElementById("ikLambda"),
+
+    recSpeedLimit: document.getElementById("recSpeedLimit"),
+    recMaxSpeed: document.getElementById("recMaxSpeed"),
+    recResample: document.getElementById("recResample"),
+    recStepPx: document.getElementById("recStepPx"),
+    recSmooth: document.getElementById("recSmooth"),
+    recAlpha: document.getElementById("recAlpha"),
+
+    ppResample: document.getElementById("ppResample"),
+    ppStep: document.getElementById("ppStep"),
+    ppSmooth: document.getElementById("ppSmooth"),
+    ppK: document.getElementById("ppK"),
+
+    importJson: document.getElementById("importJson"),
   };
 
-  // Prevent S-Pen button context menu issues
-  canvas.addEventListener("contextmenu", (e) => e.preventDefault(), { passive: false });
+  // S-pen 버튼 등으로 contextmenu 떠서 끊기는 문제 방지
+  ink.addEventListener("contextmenu", (e)=>e.preventDefault(), {passive:false});
 
-  // Geometry helpers
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const hypot = (x, y) => Math.hypot(x, y);
+  // ====== helpers ======
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const hypot = (x,y)=>Math.hypot(x,y);
+  const nowMs = ()=>performance.now();
 
-  function linkLengths() {
+  function getPressure(e){
+    if (typeof e.pressure === "number") return e.pressure;
+    if (typeof e.force === "number") return e.force;
+    return 0.5;
+  }
+
+  function linkLengths(){
     return [Number(ui.l1.value), Number(ui.l2.value), Number(ui.l3.value)];
   }
 
-  function reachRadii(l1, l2, l3) {
-    const sum = l1 + l2 + l3;
-    const mx = Math.max(l1, l2, l3);
-    const inner = Math.max(0, mx - (sum - mx)); // max(0, maxLi - (sum-maxLi))
+  function reachRadii(l1,l2,l3){
+    const sum = l1+l2+l3;
+    const mx = Math.max(l1,l2,l3);
+    const inner = Math.max(0, mx - (sum - mx));
     return { rMin: inner, rMax: sum };
   }
 
-  // Base at bottom-center-ish (stable for drawing)
-  let base = { x: 0, y: 0 };
+  // ====== frame + base ======
+  let dpr = 1;
+  let viewW = 0, viewH = 0;
+  let drawRect = {x:0,y:0,w:0,h:0};
+  // base inside frame: bottom-center-ish
+  const baseUV = { u: 0.5, v: 0.88 };
+  let baseCss = { x:0, y:0 };
 
-  function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    const w = window.innerWidth;
-    const h = window.innerHeight - document.querySelector(".bar").offsetHeight;
-
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 2.25;
-    ctx.strokeStyle = "#000";
-
-    // Place base: 12% from bottom, centered
-    base.x = w * 0.5;
-    base.y = h * 0.88;
-
-    redraw();
+  function computeDrawRect(w,h){
+    if (!ui.lockA3.checked) return {x:0,y:0,w:w,h:h};
+    let hh = h;
+    let ww = hh * A3_RATIO;
+    if (ww > w){ ww = w; hh = ww / A3_RATIO; }
+    return { x:(w-ww)*0.5, y:(h-hh)*0.5, w:ww, h:hh };
   }
 
-  // Data
-  // strokes: [{points:[{x,y,t,p, theta:[t1,t2,t3]?}], ...}]
-  let strokes = [];
-  let current = null;
-
-  // State for smoothing / IK continuity
-  let lastKept = null;        // last kept point in current stroke
-  let lastRaw = null;         // last raw input sample
-  let lastAngles = [0, 0, 0]; // IK seed
-  let lastTime = null;
-
-  function nowMs() { return performance.now(); }
-
-  function getPressure(e) {
-    // PointerEvent.pressure is standard (0..1). Some browsers use force.
-    if (typeof e.pressure === "number") return e.pressure;
-    if (typeof e.force === "number") return e.force;
-    return 0;
+  function updateBase(){
+    baseCss.x = drawRect.x + drawRect.w * baseUV.u;
+    baseCss.y = drawRect.y + drawRect.h * baseUV.v;
   }
 
-  function clientToCanvasXY(e) {
-    const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  function clampToFrame(x,y){
+    return {
+      x: clamp(x, drawRect.x, drawRect.x + drawRect.w),
+      y: clamp(y, drawRect.y, drawRect.y + drawRect.h),
+    };
   }
 
-  function clampToWorkspace(x, y) {
-    const [l1, l2, l3] = linkLengths();
-    const { rMin, rMax } = reachRadii(l1, l2, l3);
-    const dx = x - base.x;
-    const dy = y - base.y;
-    const r = hypot(dx, dy);
-    if (r === 0) {
-      // If inner radius > 0, push outward along +x
-      if (rMin > 0) return { x: base.x + rMin, y: base.y };
-      return { x, y };
+  function toUV(x,y){
+    const u = (x - drawRect.x) / drawRect.w;
+    const v = (y - drawRect.y) / drawRect.h;
+    return { u: clamp(u,0,1), v: clamp(v,0,1) };
+  }
+
+  // workspace clamp around baseCss
+  function clampToWorkspace(x,y){
+    const [l1,l2,l3] = linkLengths();
+    const {rMin, rMax} = reachRadii(l1,l2,l3);
+    const dx = x - baseCss.x;
+    const dy = y - baseCss.y;
+    const r = hypot(dx,dy);
+    if (r === 0){
+      if (rMin > 0) return {x: baseCss.x + rMin, y: baseCss.y};
+      return {x,y};
     }
     let rr = r;
     if (rr > rMax) rr = rMax;
     if (rr < rMin) rr = rMin;
     const s = rr / r;
-    return { x: base.x + dx * s, y: base.y + dy * s };
+    return { x: baseCss.x + dx*s, y: baseCss.y + dy*s };
   }
 
-  // Forward kinematics for 3-link planar arm
-  function fk(theta, l1, l2, l3) {
-    const [t1, t2, t3] = theta;
-    const a1 = t1;
-    const a2 = t1 + t2;
-    const a3 = t1 + t2 + t3;
-
-    const x1 = base.x + l1 * Math.cos(a1);
-    const y1 = base.y + l1 * Math.sin(a1);
-
-    const x2 = x1 + l2 * Math.cos(a2);
-    const y2 = y1 + l2 * Math.sin(a2);
-
-    const x3 = x2 + l3 * Math.cos(a3);
-    const y3 = y2 + l3 * Math.sin(a3);
-
-    return { x1, y1, x2, y2, x3, y3, a1, a2, a3 };
+  // ====== IK (damped least squares) ======
+  function fk(theta,l1,l2,l3){
+    const [t1,t2,t3] = theta;
+    const a1=t1, a2=t1+t2, a3=t1+t2+t3;
+    const x1 = baseCss.x + l1*Math.cos(a1);
+    const y1 = baseCss.y + l1*Math.sin(a1);
+    const x2 = x1 + l2*Math.cos(a2);
+    const y2 = y1 + l2*Math.sin(a2);
+    const x3 = x2 + l3*Math.cos(a3);
+    const y3 = y2 + l3*Math.sin(a3);
+    return {x1,y1,x2,y2,x3,y3,a1,a2,a3};
   }
 
-  // Jacobian 2x3 for end effector position
-  function jacobian(theta, l1, l2, l3) {
-    const [t1, t2, t3] = theta;
-    const a1 = t1;
-    const a2 = t1 + t2;
-    const a3 = t1 + t2 + t3;
-
-    // dX/dti, dY/dti (i=1..3)
-    // For planar chain: derivative is sum of -li*sin(ai) for x, +li*cos(ai) for y for all segments affected.
-    const s1 = Math.sin(a1), c1 = Math.cos(a1);
-    const s2 = Math.sin(a2), c2 = Math.cos(a2);
-    const s3 = Math.sin(a3), c3 = Math.cos(a3);
+  function jacobian(theta,l1,l2,l3){
+    const [t1,t2,t3] = theta;
+    const a1=t1, a2=t1+t2, a3=t1+t2+t3;
+    const s1=Math.sin(a1), c1=Math.cos(a1);
+    const s2=Math.sin(a2), c2=Math.cos(a2);
+    const s3=Math.sin(a3), c3=Math.cos(a3);
 
     const dxd1 = -l1*s1 - l2*s2 - l3*s3;
     const dxd2 =          - l2*s2 - l3*s3;
@@ -222,144 +254,173 @@
     const dyd2 =           l2*c2 + l3*c3;
     const dyd3 =                     l3*c3;
 
-    return [
-      [dxd1, dxd2, dxd3],
-      [dyd1, dyd2, dyd3],
-    ];
+    return [[dxd1,dxd2,dxd3],[dyd1,dyd2,dyd3]];
   }
 
-  // Damped Least Squares IK (2D pos)
-  function ikSolve(targetX, targetY, theta0) {
-    const [l1, l2, l3] = linkLengths();
-    const iters = clamp(Number(ui.ikIters.value) || 10, 1, 100);
-    const lambda = Math.max(0, Number(ui.ikLambda.value) || 0);
+  function ikSolve(targetX,targetY,theta0){
+    const [l1,l2,l3] = linkLengths();
+    const iters = clamp(Number(ui.ikIters.value)||10, 1, 200);
+    const lambda = Math.max(0, Number(ui.ikLambda.value)||0);
 
     let th = theta0.slice();
-
-    // Optional joint limits (keep reasonable)
-    const lim = Math.PI; // [-pi, pi]
-    const clampAngles = () => {
-      th[0] = clamp(th[0], -lim, lim);
-      th[1] = clamp(th[1], -lim, lim);
-      th[2] = clamp(th[2], -lim, lim);
+    const lim = Math.PI;
+    const clampAngles = ()=>{
+      th[0]=clamp(th[0],-lim,lim);
+      th[1]=clamp(th[1],-lim,lim);
+      th[2]=clamp(th[2],-lim,lim);
     };
 
-    for (let k = 0; k < iters; k++) {
-      const f = fk(th, l1, l2, l3);
+    for (let k=0;k<iters;k++){
+      const f = fk(th,l1,l2,l3);
       const ex = targetX - f.x3;
       const ey = targetY - f.y3;
-      const err = Math.hypot(ex, ey);
-      if (err < 0.5) break;
+      if (Math.hypot(ex,ey) < 0.5) break;
 
-      const J = jacobian(th, l1, l2, l3); // 2x3
+      const J = jacobian(th,l1,l2,l3);
 
-      // Compute dq = J^T * (J J^T + λ^2 I)^-1 * e
-      // A = JJ^T + λ^2 I is 2x2
+      // A = JJ^T + λ^2 I  (2x2)
       const a11 = J[0][0]*J[0][0] + J[0][1]*J[0][1] + J[0][2]*J[0][2] + lambda*lambda;
       const a12 = J[0][0]*J[1][0] + J[0][1]*J[1][1] + J[0][2]*J[1][2];
       const a21 = a12;
       const a22 = J[1][0]*J[1][0] + J[1][1]*J[1][1] + J[1][2]*J[1][2] + lambda*lambda;
 
-      // Invert 2x2
       const det = a11*a22 - a12*a21;
       if (Math.abs(det) < 1e-9) break;
-      const inv11 =  a22 / det;
-      const inv12 = -a12 / det;
-      const inv21 = -a21 / det;
-      const inv22 =  a11 / det;
 
-      // v = A^-1 * e
+      const inv11 =  a22/det, inv12 = -a12/det;
+      const inv21 = -a21/det, inv22 =  a11/det;
+
       const vx = inv11*ex + inv12*ey;
       const vy = inv21*ex + inv22*ey;
 
-      // dq = J^T * v
       const dq1 = J[0][0]*vx + J[1][0]*vy;
       const dq2 = J[0][1]*vx + J[1][1]*vy;
       const dq3 = J[0][2]*vx + J[1][2]*vy;
 
-      // Step size (small for stability)
       const step = 0.35;
-      th[0] += step * dq1;
-      th[1] += step * dq2;
-      th[2] += step * dq3;
+      th[0] += step*dq1;
+      th[1] += step*dq2;
+      th[2] += step*dq3;
 
       clampAngles();
     }
-
     return th;
   }
 
-  function ema(prev, next, alpha) {
-    return prev + alpha * (next - prev);
+  // ====== canvases resize ======
+  function setCanvasSize(c){
+    c.width = Math.floor(viewW * dpr);
+    c.height = Math.floor(viewH * dpr);
+    c.style.width = viewW + "px";
+    c.style.height = viewH + "px";
   }
 
-  function drawWorkspace() {
-    if (!ui.showWS.checked) return;
-    const [l1, l2, l3] = linkLengths();
-    const { rMin, rMax } = reachRadii(l1, l2, l3);
+  function applyTransform(context){
+    context.setTransform(dpr,0,0,dpr,0,0);
+  }
 
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "#bbb";
+  function resize(){
+    dpr = window.devicePixelRatio || 1;
+    viewW = window.innerWidth;
+    viewH = window.innerHeight - document.querySelector(".bar").offsetHeight;
 
-    // Outer circle
-    ctx.beginPath();
-    ctx.arc(base.x, base.y, rMax, 0, Math.PI*2);
-    ctx.stroke();
+    setCanvasSize(ink);
+    setCanvasSize(ov);
+    applyTransform(ctx);
+    applyTransform(g);
 
-    // Inner circle if any
-    if (rMin > 0.5) {
-      ctx.beginPath();
-      ctx.arc(base.x, base.y, rMin, 0, Math.PI*2);
-      ctx.stroke();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 2.25;
+    ctx.strokeStyle = "#000";
+
+    drawRect = computeDrawRect(viewW, viewH);
+    updateBase();
+
+    redrawAllInk();
+    redrawOverlay();
+  }
+
+  window.addEventListener("resize", resize);
+
+  // ====== overlay drawing (frame/workspace/arm) ======
+  let lastAngles = [0,0,0];
+
+  function redrawOverlay(){
+    g.clearRect(0,0,viewW,viewH);
+
+    // frame mask
+    if (ui.showFrame.checked){
+      g.save();
+      g.fillStyle = "#f3f3f3";
+      // left
+      g.fillRect(0,0,drawRect.x,viewH);
+      // right
+      g.fillRect(drawRect.x + drawRect.w, 0, viewW - (drawRect.x + drawRect.w), viewH);
+      // top
+      g.fillRect(drawRect.x, 0, drawRect.w, drawRect.y);
+      // bottom
+      g.fillRect(drawRect.x, drawRect.y + drawRect.h, drawRect.w, viewH - (drawRect.y + drawRect.h));
+
+      g.lineWidth = 1.25;
+      g.strokeStyle = "#bbb";
+      g.strokeRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
+      g.restore();
     }
 
-    // Base marker
-    ctx.fillStyle = "#bbb";
-    ctx.beginPath();
-    ctx.arc(base.x, base.y, 3, 0, Math.PI*2);
-    ctx.fill();
+    // workspace circles + base
+    if (ui.showWS.checked){
+      const [l1,l2,l3] = linkLengths();
+      const {rMin, rMax} = reachRadii(l1,l2,l3);
 
-    ctx.restore();
-  }
+      g.save();
+      g.lineWidth = 1;
+      g.strokeStyle = "#bbb";
+      g.beginPath(); g.arc(baseCss.x, baseCss.y, rMax, 0, Math.PI*2); g.stroke();
+      if (rMin > 0.5){ g.beginPath(); g.arc(baseCss.x, baseCss.y, rMin, 0, Math.PI*2); g.stroke(); }
 
-  function drawArm(theta) {
-    if (!ui.showArm.checked) return;
-    const [l1, l2, l3] = linkLengths();
-    const f = fk(theta, l1, l2, l3);
-
-    ctx.save();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#888";
-
-    ctx.beginPath();
-    ctx.moveTo(base.x, base.y);
-    ctx.lineTo(f.x1, f.y1);
-    ctx.lineTo(f.x2, f.y2);
-    ctx.lineTo(f.x3, f.y3);
-    ctx.stroke();
-
-    ctx.fillStyle = "#888";
-    for (const [x, y] of [[base.x, base.y], [f.x1,f.y1], [f.x2,f.y2], [f.x3,f.y3]]) {
-      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
+      g.fillStyle = "#bbb";
+      g.beginPath(); g.arc(baseCss.x, baseCss.y, 3, 0, Math.PI*2); g.fill();
+      g.restore();
     }
 
-    ctx.restore();
+    // arm
+    if (ui.showArm.checked){
+      const [l1,l2,l3] = linkLengths();
+      const f = fk(lastAngles,l1,l2,l3);
+
+      g.save();
+      g.lineWidth = 2;
+      g.strokeStyle = "#888";
+      g.beginPath();
+      g.moveTo(baseCss.x, baseCss.y);
+      g.lineTo(f.x1,f.y1);
+      g.lineTo(f.x2,f.y2);
+      g.lineTo(f.x3,f.y3);
+      g.stroke();
+
+      g.fillStyle = "#888";
+      for (const [x,y] of [[baseCss.x,baseCss.y],[f.x1,f.y1],[f.x2,f.y2],[f.x3,f.y3]]){
+        g.beginPath(); g.arc(x,y,3,0,Math.PI*2); g.fill();
+      }
+      g.restore();
+    }
   }
 
-  function redraw() {
-    const rect = canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width, rect.height);
+  // ====== ink redraw (full) ======
+  let strokes = []; // [{points:[{x,y,u,v,t,p,theta?}], ...}]
+  let current = null;
+  let lastKept = null;
+  let lastRaw = null;
 
-    drawWorkspace();
-
-    // Draw strokes
+  function redrawAllInk(){
+    ctx.clearRect(0,0,viewW,viewH);
     ctx.save();
     ctx.lineWidth = 2.25;
     ctx.strokeStyle = "#000";
-    for (const s of strokes) {
-      const pts = s.points;
-      for (let i = 1; i < pts.length; i++) {
+    for (const s of strokes){
+      const pts = s.points || [];
+      for (let i=1;i<pts.length;i++){
         ctx.beginPath();
         ctx.moveTo(pts[i-1].x, pts[i-1].y);
         ctx.lineTo(pts[i].x, pts[i].y);
@@ -367,216 +428,460 @@
       }
     }
     ctx.restore();
-
-    // Draw arm at last angle (visual)
-    if (ui.showArm.checked) drawArm(lastAngles);
   }
 
-  function drawSegment(a, b) {
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-  }
-
-  function shouldKeepPoint(prev, next) {
+  // ====== record pipeline ======
+  function shouldKeepPoint(prev, next){
     if (!prev) return true;
-    if (!ui.resample.checked) return true;
-    const step = Math.max(1, Number(ui.stepPx.value) || 2);
+    if (!ui.recResample.checked) return true;
+    const step = Math.max(1, Number(ui.recStepPx.value)||2);
     const dx = next.x - prev.x;
     const dy = next.y - prev.y;
-    return (dx*dx + dy*dy) >= (step*step);
+    return (dx*dx + dy*dy) >= step*step;
   }
 
-  function processSample(sample) {
-    // sample: {x,y,t,p} (CSS coords)
-    let { x, y, t, p } = sample;
+  function ema(prev, next, alpha){ return prev + alpha*(next - prev); }
 
-    // Workspace clamp
-    if (ui.clampWS.checked) {
-      const c = clampToWorkspace(x, y);
-      x = c.x; y = c.y;
+  function processSample(sample){
+    let {x,y,t,p} = sample;
+
+    if (ui.clampFrame.checked){
+      const c = clampToFrame(x,y);
+      x=c.x; y=c.y;
+    }
+    if (ui.clampWS.checked){
+      const c = clampToWorkspace(x,y);
+      x=c.x; y=c.y;
     }
 
-    // Smoothing (EMA)
-    if (ui.smooth.checked && lastKept) {
-      const a = Number(ui.alpha.value);
+    // record-time smoothing (EMA)
+    if (ui.recSmooth.checked && lastKept){
+      const a = Number(ui.recAlpha.value);
       x = ema(lastKept.x, x, a);
       y = ema(lastKept.y, y, a);
-      // pressure smoothing optional
       p = ema(lastKept.p ?? p, p, a);
     }
 
-    const point = { x, y, t, p };
+    const uv = toUV(x,y);
+    const pt = { x, y, u: uv.u, v: uv.v, t, p };
 
-    // IK per point (store theta)
-    if (ui.saveTheta.checked) {
-      const th = ikSolve(x, y, lastAngles);
+    if (ui.saveTheta.checked){
+      const th = ikSolve(x,y,lastAngles);
       lastAngles = th;
-      point.theta = th.slice(); // radians
+      pt.theta = th.slice(); // radians
     }
 
-    // Resample keep decision
-    if (shouldKeepPoint(lastKept, point)) {
-      current.points.push(point);
+    if (!shouldKeepPoint(lastKept, pt)) return;
 
-      // Draw immediate segment for responsiveness
-      if (lastKept) drawSegment(lastKept, point);
-      lastKept = point;
+    current.points.push(pt);
 
-      if (ui.showArm.checked) {
-        // Redraw arm overlay without clearing strokes
-        redraw();
-      }
+    // draw incremental ink
+    if (lastKept){
+      ctx.beginPath();
+      ctx.moveTo(lastKept.x, lastKept.y);
+      ctx.lineTo(pt.x, pt.y);
+      ctx.stroke();
     }
+    lastKept = pt;
+
+    // update overlay only (cheap)
+    redrawOverlay();
   }
 
-  function addSampleFromEvent(e) {
-    const xy = clientToCanvasXY(e);
+  function addSampleFromEvent(e){
+    const rect = ink.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     const p = getPressure(e);
     const t = nowMs();
 
-    // Speed limiting: if very fast, insert intermediate points
-    if (ui.speedLimit.checked && lastRaw) {
-      const dt = Math.max(0.001, (t - lastRaw.t) / 1000);
-      const vmax = Math.max(50, Number(ui.maxSpeed.value) || 2500); // px/s
+    // speed limit: interpolate
+    if (ui.recSpeedLimit.checked && lastRaw){
+      const dt = Math.max(0.001, (t - lastRaw.t)/1000);
+      const vmax = Math.max(50, Number(ui.recMaxSpeed.value)||2500);
       const maxDist = vmax * dt;
 
-      const dx = xy.x - lastRaw.x;
-      const dy = xy.y - lastRaw.y;
-      const dist = Math.hypot(dx, dy);
+      const dx = x - lastRaw.x;
+      const dy = y - lastRaw.y;
+      const dist = Math.hypot(dx,dy);
 
-      if (dist > maxDist) {
+      if (dist > maxDist){
         const steps = Math.ceil(dist / maxDist);
-        for (let i = 1; i <= steps; i++) {
-          const u = i / steps;
-          const xi = lastRaw.x + dx * u;
-          const yi = lastRaw.y + dy * u;
-          const ti = lastRaw.t + (t - lastRaw.t) * u;
-          const pi = lastRaw.p + (p - lastRaw.p) * u;
-          processSample({ x: xi, y: yi, t: ti, p: pi });
+        for (let i=1;i<=steps;i++){
+          const u = i/steps;
+          processSample({
+            x: lastRaw.x + dx*u,
+            y: lastRaw.y + dy*u,
+            t: lastRaw.t + (t - lastRaw.t)*u,
+            p: lastRaw.p + (p - lastRaw.p)*u,
+          });
         }
-        lastRaw = { x: xy.x, y: xy.y, t, p };
+        lastRaw = {x,y,t,p};
         return;
       }
     }
 
-    processSample({ x: xy.x, y: xy.y, t, p });
-    lastRaw = { x: xy.x, y: xy.y, t, p };
+    processSample({x,y,t,p});
+    lastRaw = {x,y,t,p};
   }
 
-  function startStroke(e) {
+  function startStroke(e){
     if (ui.penOnly.checked && e.pointerType && e.pointerType !== "pen") return;
-
     current = { points: [] };
     strokes.push(current);
-
     lastKept = null;
     lastRaw = null;
-    lastTime = nowMs();
-
-    // Keep IK continuity across strokes, or reset if you want:
-    // lastAngles = [0,0,0];
-
     addSampleFromEvent(e);
-
-    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length}`;
+    info.textContent = `strokes: ${strokes.length} | last points: ${current.points.length}`;
   }
 
-  function moveStroke(e) {
+  function moveStroke(e){
     if (!current) return;
     if (ui.penOnly.checked && e.pointerType && e.pointerType !== "pen") return;
-
     addSampleFromEvent(e);
-    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length}`;
+    info.textContent = `strokes: ${strokes.length} | last points: ${current.points.length}`;
   }
 
-  function endStroke() {
+  function endStroke(){
     current = null;
     lastKept = null;
     lastRaw = null;
+    info.textContent = `strokes: ${strokes.length}`;
   }
 
-  canvas.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    canvas.setPointerCapture(e.pointerId);
-    startStroke(e);
-  }, { passive: false });
+  ink.addEventListener("pointerdown", (e)=>{ e.preventDefault(); ink.setPointerCapture(e.pointerId); startStroke(e); }, {passive:false});
+  ink.addEventListener("pointermove", (e)=>{ e.preventDefault(); moveStroke(e); }, {passive:false});
+  ink.addEventListener("pointerup", (e)=>{ e.preventDefault(); endStroke(); }, {passive:false});
+  ink.addEventListener("pointercancel", (e)=>{ e.preventDefault(); endStroke(); }, {passive:false});
 
-  canvas.addEventListener("pointermove", (e) => {
-    e.preventDefault();
-    moveStroke(e);
-  }, { passive: false });
+  // ====== meta/build/download ======
+  function buildMeta(){
+    const [l1,l2,l3] = linkLengths();
+    const {rMin,rMax} = reachRadii(l1,l2,l3);
+    return {
+      createdAt: new Date().toISOString(),
+      devicePixelRatio: dpr,
+      canvasCss: { width: viewW, height: viewH },
+      drawRectCss: drawRect,
+      a3: { mm:{w:297,h:420}, dpiTarget:300, pxTarget:{w:A3_W,h:A3_H} },
+      arm: {
+        linksPx: { l1,l2,l3 },
+        workspace: { rMin, rMax },
+        baseUV: { ...baseUV },
+        baseCss: { ...baseCss },
+        baseA3Px: { x: Math.round(baseUV.u*(A3_W-1)), y: Math.round(baseUV.v*(A3_H-1)) }
+      },
+      settings: {
+        penOnly: ui.penOnly.checked,
+        lockA3: ui.lockA3.checked,
+        clampFrame: ui.clampFrame.checked,
+        showFrame: ui.showFrame.checked,
+        showWS: ui.showWS.checked,
+        clampWS: ui.clampWS.checked,
+        showArm: ui.showArm.checked,
+        saveTheta: ui.saveTheta.checked,
+        ikIters: Number(ui.ikIters.value),
+        ikLambda: Number(ui.ikLambda.value),
+        record: {
+          speedLimit: ui.recSpeedLimit.checked,
+          maxSpeedPxPerSec: Number(ui.recMaxSpeed.value),
+          resample: ui.recResample.checked,
+          stepPx: Number(ui.recStepPx.value),
+          smooth: ui.recSmooth.checked,
+          alpha: Number(ui.recAlpha.value),
+        }
+      }
+    };
+  }
 
-  canvas.addEventListener("pointerup", (e) => {
-    e.preventDefault();
-    endStroke();
-  }, { passive: false });
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }
 
-  canvas.addEventListener("pointercancel", (e) => {
-    e.preventDefault();
-    endStroke();
-  }, { passive: false });
+  function downloadJSON(obj, filename){
+    downloadBlob(new Blob([JSON.stringify(obj)], {type:"application/json"}), filename);
+  }
 
-  document.getElementById("clear").onclick = () => {
+  document.getElementById("downloadRaw").onclick = ()=>{
+    downloadJSON({ meta: buildMeta(), strokes }, "strokes.json");
+  };
+
+  document.getElementById("clear").onclick = ()=>{
     strokes = [];
     current = null;
     lastKept = null;
     lastRaw = null;
-    redraw();
+    lastAngles = [0,0,0];
+    ctx.clearRect(0,0,viewW,viewH);
+    redrawOverlay();
     info.textContent = "cleared";
   };
 
-  document.getElementById("download").onclick = () => {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const [l1, l2, l3] = linkLengths();
-    const { rMin, rMax } = reachRadii(l1, l2, l3);
+  // ====== preprocess (smooth + resample in UV, keeping theta when present) ======
+  function uvDist(a,b){
+    const du=a.u-b.u, dv=a.v-b.v;
+    return Math.hypot(du,dv);
+  }
 
-    const settings = {
-      penOnly: ui.penOnly.checked,
-      showArm: ui.showArm.checked,
-      showWorkspace: ui.showWS.checked,
-      clampWorkspace: ui.clampWS.checked,
-      resample: ui.resample.checked,
-      stepPx: Number(ui.stepPx.value),
-      smooth: ui.smooth.checked,
-      alpha: Number(ui.alpha.value),
-      speedLimit: ui.speedLimit.checked,
-      maxSpeedPxPerSec: Number(ui.maxSpeed.value),
-      saveTheta: ui.saveTheta.checked,
-      ikIters: Number(ui.ikIters.value),
-      ikLambda: Number(ui.ikLambda.value),
-      lineWidth: 2.25
-    };
+  function movingAverage(points, k){
+    if (k <= 1 || points.length < k) return points;
+    const half = Math.floor(k/2);
+    const out = [];
+    for (let i=0;i<points.length;i++){
+      const lo = Math.max(0, i-half);
+      const hi = Math.min(points.length, i+half+1);
+      let su=0, sv=0, sp=0, st=0, n=0;
+      let sth = null; // [sum,sum,sum]
+      for (let j=lo;j<hi;j++){
+        const p = points[j];
+        su += p.u; sv += p.v;
+        sp += (p.p ?? 0.5);
+        st += (p.t ?? 0);
+        if (Array.isArray(p.theta)){
+          if (!sth) sth = [0,0,0];
+          sth[0] += p.theta[0]; sth[1] += p.theta[1]; sth[2] += p.theta[2];
+        }
+        n++;
+      }
+      const base = { ...points[i] };
+      base.u = su/n; base.v = sv/n; base.p = sp/n; base.t = st/n;
+      if (sth) base.theta = [sth[0]/n, sth[1]/n, sth[2]/n];
+      out.push(base);
+    }
+    return out;
+  }
 
-    const meta = {
-      createdAt: new Date().toISOString(),
-      devicePixelRatio: dpr,
-      cssWidth: rect.width,
-      cssHeight: rect.height,
-      base: { x: base.x, y: base.y },
-      linksPx: { l1, l2, l3 },
-      workspace: { rMin, rMax },
-      settings
-    };
+  // resample in UV with step in A3 pixels
+  function resampleByStep(points, stepA3Px){
+    if (points.length < 2) return points;
+    const stepUV = stepA3Px / Math.max(A3_W, A3_H);
 
-    const data = { meta, strokes };
-    const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "strokes.json";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const kept = [points[0]];
+    let acc = 0;
+
+    for (let i=1;i<points.length;i++){
+      const a = kept[kept.length-1];
+      const b = points[i];
+      const d = uvDist(a,b);
+      if (d < 1e-12) continue;
+
+      if (d + acc < stepUV){ acc += d; continue; }
+
+      const need = stepUV - acc;
+      const tt = need / d;
+
+      const u = a.u + (b.u - a.u) * tt;
+      const v = a.v + (b.v - a.v) * tt;
+      const p = (a.p ?? 0.5) + ((b.p ?? 0.5) - (a.p ?? 0.5)) * tt;
+      const t = (a.t ?? 0) + ((b.t ?? 0) - (a.t ?? 0)) * tt;
+
+      const np = { ...b, u, v, p, t };
+
+      if (Array.isArray(a.theta) && Array.isArray(b.theta)){
+        np.theta = [
+          a.theta[0] + (b.theta[0]-a.theta[0]) * tt,
+          a.theta[1] + (b.theta[1]-a.theta[1]) * tt,
+          a.theta[2] + (b.theta[2]-a.theta[2]) * tt,
+        ];
+      }
+
+      kept.push(np);
+      acc = 0;
+    }
+    return kept;
+  }
+
+  function preprocessCurrent(){
+    const step = Math.max(1, Number(ui.ppStep.value)||8);
+    const k = Math.max(1, Number(ui.ppK.value)||1);
+
+    const cleaned = [];
+    for (const s of strokes){
+      let pts = (s.points||[]).map(p=>({ ...p }));
+
+      // ensure u,v
+      for (const p of pts){
+        if (typeof p.u !== "number" || typeof p.v !== "number"){
+          const uv = toUV(p.x, p.y);
+          p.u = uv.u; p.v = uv.v;
+        }
+        p.u = clamp(p.u,0,1);
+        p.v = clamp(p.v,0,1);
+        if (typeof p.p !== "number") p.p = 0.5;
+      }
+
+      if (ui.ppSmooth.checked && k>1) pts = movingAverage(pts, k);
+      if (ui.ppResample.checked) pts = resampleByStep(pts, step);
+
+      cleaned.push({ points: pts });
+    }
+
+    return { meta: buildMeta(), strokes: cleaned };
+  }
+
+  // ====== exports ======
+  document.getElementById("exportCleanJson").onclick = ()=>{
+    const cleaned = preprocessCurrent();
+    downloadJSON(cleaned, "strokes_clean.json");
   };
 
-  // Re-render when lengths or toggles change
-  ["l1","l2","l3","showWS","showArm"].forEach(id => {
-    document.getElementById(id).addEventListener("change", () => redraw());
+  // obs(u,v,p,theta?) -> act(du,dv, pen)
+  document.getElementById("exportJsonl").onclick = ()=>{
+    const cleaned = preprocessCurrent();
+    const S = cleaned.strokes || [];
+    const lines = [];
+
+    for (let si=0; si<S.length; si++){
+      const pts = S[si].points || [];
+      if (pts.length < 2) continue;
+
+      for (let i=0;i<pts.length-1;i++){
+        const a = pts[i];
+        const b = pts[i+1];
+
+        const obs = { u:a.u, v:a.v, p:a.p };
+        if (Array.isArray(a.theta)) obs.theta = a.theta;
+
+        const act = { du:(b.u - a.u), dv:(b.v - a.v), pen:1 };
+        lines.push(JSON.stringify({ obs, act }));
+      }
+
+      if (si < S.length - 1){
+        const last = pts[pts.length-1];
+        const nextPts = S[si+1].points || [];
+        if (nextPts.length > 0){
+          const ns = nextPts[0];
+          const obs = { u:last.u, v:last.v, p:last.p };
+          if (Array.isArray(last.theta)) obs.theta = last.theta;
+          const act = { du:(ns.u - last.u), dv:(ns.v - last.v), pen:0 };
+          lines.push(JSON.stringify({ obs, act }));
+        }
+      }
+    }
+
+    downloadBlob(new Blob([lines.join("\n")], {type:"text/plain"}), "sequence.jsonl");
+  };
+
+  function uvToA3Px(u,v){
+    return { x: Math.round(u*(A3_W-1)), y: Math.round(v*(A3_H-1)) };
+  }
+
+  document.getElementById("exportA3Png").onclick = ()=>{
+    const cleaned = preprocessCurrent();
+
+    const off = document.createElement("canvas");
+    off.width = A3_W; off.height = A3_H;
+    const h = off.getContext("2d");
+
+    h.fillStyle = "#fff";
+    h.fillRect(0,0,A3_W,A3_H);
+
+    h.lineCap = "round";
+    h.lineJoin = "round";
+    h.strokeStyle = "#000";
+    h.lineWidth = 3; // 출력 선 굵기(px)
+
+    for (const s of (cleaned.strokes||[])){
+      const pts = s.points || [];
+      if (pts.length < 2) continue;
+      h.beginPath();
+      const p0 = uvToA3Px(pts[0].u, pts[0].v);
+      h.moveTo(p0.x, p0.y);
+      for (let i=1;i<pts.length;i++){
+        const pi = uvToA3Px(pts[i].u, pts[i].v);
+        h.lineTo(pi.x, pi.y);
+      }
+      h.stroke();
+    }
+
+    off.toBlob((blob)=>{
+      if (!blob) return;
+      downloadBlob(blob, "render_A3_3508x4961.png");
+    }, "image/png");
+  };
+
+  // ====== import ======
+  function ensureUVForImported(data){
+    // If u,v missing, try infer from meta.drawRectCss (old versions)
+    const meta = data.meta || {};
+    const dr = meta.drawRectCss;
+    if (!dr) return data;
+
+    for (const s of (data.strokes||[])){
+      for (const p of (s.points||[])){
+        if (typeof p.u === "number" && typeof p.v === "number") continue;
+        if (typeof p.x === "number" && typeof p.y === "number"){
+          p.u = clamp((p.x - dr.x)/dr.w, 0, 1);
+          p.v = clamp((p.y - dr.y)/dr.h, 0, 1);
+        }
+      }
+    }
+    return data;
+  }
+
+  ui.importJson.addEventListener("change", async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch { info.textContent = "Import 실패: JSON 파싱 오류"; ui.importJson.value=""; return; }
+
+    data = ensureUVForImported(data);
+
+    // display on current frame: u,v -> x,y
+    const imported = [];
+    for (const s of (data.strokes||[])){
+      const pts = (s.points||[]).map(p=>{
+        let u = (typeof p.u === "number") ? p.u : 0;
+        let v = (typeof p.v === "number") ? p.v : 0;
+        u = clamp(u,0,1); v = clamp(v,0,1);
+        const x = drawRect.x + u*drawRect.w;
+        const y = drawRect.y + v*drawRect.h;
+        const out = { x, y, u, v, t: p.t ?? 0, p: p.p ?? 0.5 };
+        if (Array.isArray(p.theta)) out.theta = p.theta.slice();
+        return out;
+      });
+      imported.push({ points: pts });
+    }
+
+    strokes = imported;
+    current = null; lastKept=null; lastRaw=null;
+
+    // set lastAngles to last theta if present
+    lastAngles = [0,0,0];
+    for (let i=strokes.length-1;i>=0;i--){
+      const pts = strokes[i].points || [];
+      for (let j=pts.length-1;j>=0;j--){
+        if (Array.isArray(pts[j].theta)){ lastAngles = pts[j].theta.slice(); i=-1; break; }
+      }
+    }
+
+    redrawAllInk();
+    redrawOverlay();
+    info.textContent = `Imported strokes: ${strokes.length}`;
+    ui.importJson.value = "";
   });
 
-  window.addEventListener("resize", resize);
+  // ====== reactive overlay updates ======
+  [
+    "lockA3","showFrame",
+    "showWS","clampWS","showArm","saveTheta",
+    "l1","l2","l3","ikIters","ikLambda"
+  ].forEach(id=>{
+    document.getElementById(id).addEventListener("change", ()=>{
+      drawRect = computeDrawRect(viewW, viewH);
+      updateBase();
+      redrawOverlay();
+    });
+  });
+
+  // init
   resize();
 })();
 </script>
