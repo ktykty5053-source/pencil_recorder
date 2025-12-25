@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Apple Pencil Stroke Recorder</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, system-ui, sans-serif; }
+    .bar { position: sticky; top: 0; background: #fff; padding: 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #ddd; }
+    button { padding: 10px 12px; border: 1px solid #ccc; background: #fff; border-radius: 10px; }
+    #info { font-size: 12px; color: #444; }
+    canvas { display:block; touch-action: none; background: #fff; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <button id="clear">Clear</button>
+    <button id="download">Download JSON</button>
+    <div id="info">pen으로 그리세요. (x,y,pressure,time) 기록</div>
+  </div>
+  <canvas id="c"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { desynchronized: true });
+  const info = document.getElementById("info");
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = window.innerWidth;
+    const h = window.innerHeight - document.querySelector(".bar").offsetHeight;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#000";
+    redraw();
+  }
+
+  // strokes: [{points:[{x,y,t,p}], ...}]
+  let strokes = [];
+  let current = null;
+
+  function nowMs() { return performance.now(); }
+
+  function addPoint(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    // pressure: 0..1 (기기/브라우저에 따라 분포 다름)
+    const p = (typeof e.pressure === "number") ? e.pressure : (typeof e.force === "number" ? e.force : 0);
+    const t = nowMs();
+    current.points.push({ x, y, t, p });
+  }
+
+  function startStroke(e) {
+    // 애플펜슬/펜만 받고 싶으면 아래 조건 사용 가능
+    // if (e.pointerType && e.pointerType !== "pen") return;
+    current = { points: [] };
+    strokes.push(current);
+    addPoint(e);
+    drawLastSegment();
+    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length} | pressure: ${current.points.at(-1).p.toFixed(3)}`;
+  }
+
+  function moveStroke(e) {
+    if (!current) return;
+    addPoint(e);
+    drawLastSegment();
+    const last = current.points.at(-1);
+    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length} | pressure: ${last.p.toFixed(3)}`;
+  }
+
+  function endStroke() {
+    current = null;
+  }
+
+  function drawLastSegment() {
+    if (!current || current.points.length < 2) return;
+    const pts = current.points;
+    const a = pts[pts.length - 2];
+    const b = pts[pts.length - 1];
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+
+  function redraw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const s of strokes) {
+      const pts = s.points;
+      for (let i = 1; i < pts.length; i++) {
+        ctx.beginPath();
+        ctx.moveTo(pts[i-1].x, pts[i-1].y);
+        ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Pointer Events 우선
+  canvas.addEventListener("pointerdown", (e) => { e.preventDefault(); canvas.setPointerCapture(e.pointerId); startStroke(e); });
+  canvas.addEventListener("pointermove", (e) => { e.preventDefault(); moveStroke(e); });
+  canvas.addEventListener("pointerup",   (e) => { e.preventDefault(); endStroke(); });
+  canvas.addEventListener("pointercancel",(e)=> { e.preventDefault(); endStroke(); });
+
+  // Buttons
+  document.getElementById("clear").onclick = () => { strokes = []; current = null; redraw(); info.textContent = "cleared"; };
+
+  document.getElementById("download").onclick = () => {
+    const meta = {
+      devicePixelRatio: window.devicePixelRatio || 1,
+      cssWidth: canvas.getBoundingClientRect().width,
+      cssHeight: canvas.getBoundingClientRect().height,
+      createdAt: new Date().toISOString()
+    };
+    const data = { meta, strokes };
+    const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "strokes.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  window.addEventListener("resize", resize);
+  resize();
+})();
+</script>
+</body>
+</html>
