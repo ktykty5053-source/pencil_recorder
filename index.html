@@ -3,21 +3,70 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Apple Pencil Stroke Recorder</title>
+  <title>Pencil Recorder (Workspace + Clamp + Resample + Smooth + IK)</title>
   <style>
-    body { margin: 0; font-family: -apple-system, system-ui, sans-serif; }
-    .bar { position: sticky; top: 0; background: #fff; padding: 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #ddd; }
-    button { padding: 10px 12px; border: 1px solid #ccc; background: #fff; border-radius: 10px; }
-    #info { font-size: 12px; color: #444; }
-    canvas { display:block; touch-action: none; background: #fff; }
+    :root { --bg:#fff; --fg:#111; --muted:#666; --bd:#ddd; }
+    body { margin:0; font-family:-apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+    .bar {
+      position: sticky; top:0; z-index:10;
+      background:rgba(255,255,255,0.95);
+      backdrop-filter:saturate(180%) blur(10px);
+      border-bottom:1px solid var(--bd);
+      padding:10px;
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    }
+    button {
+      padding:10px 12px; border:1px solid #ccc; background:#fff; border-radius:10px;
+    }
+    .group { display:flex; gap:8px; align-items:center; padding:6px 8px; border:1px solid var(--bd); border-radius:12px; }
+    .group label { font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
+    .group input[type="number"] { width:80px; padding:6px; border:1px solid var(--bd); border-radius:8px; }
+    .group input[type="range"] { width:120px; }
+    #info { font-size:12px; color:var(--muted); }
+    canvas { display:block; touch-action:none; background:#fff; }
+    .pill { font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body>
   <div class="bar">
     <button id="clear">Clear</button>
     <button id="download">Download JSON</button>
-    <div id="info">pen으로 그리세요. (x,y,pressure,time) 기록</div>
+
+    <div class="group">
+      <label><input id="penOnly" type="checkbox" checked>Pen only</label>
+      <label><input id="showArm" type="checkbox" checked>Show arm</label>
+      <label><input id="showWS" type="checkbox" checked>Workspace</label>
+    </div>
+
+    <div class="group">
+      <span class="pill">Links(px):</span>
+      <label>l1 <input id="l1" type="number" value="220" min="10" step="1"></label>
+      <label>l2 <input id="l2" type="number" value="180" min="10" step="1"></label>
+      <label>l3 <input id="l3" type="number" value="140" min="10" step="1"></label>
+      <label><input id="clampWS" type="checkbox" checked>Clamp</label>
+    </div>
+
+    <div class="group">
+      <label><input id="resample" type="checkbox" checked>Resample</label>
+      <label>step(px) <input id="stepPx" type="number" value="2" min="1" step="1"></label>
+      <label><input id="smooth" type="checkbox" checked>Smooth</label>
+      <label>α <input id="alpha" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+    </div>
+
+    <div class="group">
+      <label><input id="speedLimit" type="checkbox" checked>Speed limit</label>
+      <label>px/s <input id="maxSpeed" type="number" value="2500" min="100" step="50"></label>
+    </div>
+
+    <div class="group">
+      <label><input id="saveTheta" type="checkbox" checked>Save θ (IK)</label>
+      <label>IK iters <input id="ikIters" type="number" value="10" min="1" step="1"></label>
+      <label>λ <input id="ikLambda" type="number" value="12" min="0" step="1"></label>
+    </div>
+
+    <div id="info">Draw with pen. Saves (x,y,t,p) + optional θ1..θ3 per point.</div>
   </div>
+
   <canvas id="c"></canvas>
 
 <script>
@@ -26,73 +75,288 @@
   const ctx = canvas.getContext("2d", { desynchronized: true });
   const info = document.getElementById("info");
 
+  // UI
+  const ui = {
+    penOnly: document.getElementById("penOnly"),
+    showArm: document.getElementById("showArm"),
+    showWS: document.getElementById("showWS"),
+    clampWS: document.getElementById("clampWS"),
+    resample: document.getElementById("resample"),
+    stepPx: document.getElementById("stepPx"),
+    smooth: document.getElementById("smooth"),
+    alpha: document.getElementById("alpha"),
+    speedLimit: document.getElementById("speedLimit"),
+    maxSpeed: document.getElementById("maxSpeed"),
+    saveTheta: document.getElementById("saveTheta"),
+    ikIters: document.getElementById("ikIters"),
+    ikLambda: document.getElementById("ikLambda"),
+    l1: document.getElementById("l1"),
+    l2: document.getElementById("l2"),
+    l3: document.getElementById("l3"),
+  };
+
+  // Prevent S-Pen button context menu issues
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault(), { passive: false });
+
+  // Geometry helpers
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const hypot = (x, y) => Math.hypot(x, y);
+
+  function linkLengths() {
+    return [Number(ui.l1.value), Number(ui.l2.value), Number(ui.l3.value)];
+  }
+
+  function reachRadii(l1, l2, l3) {
+    const sum = l1 + l2 + l3;
+    const mx = Math.max(l1, l2, l3);
+    const inner = Math.max(0, mx - (sum - mx)); // max(0, maxLi - (sum-maxLi))
+    return { rMin: inner, rMax: sum };
+  }
+
+  // Base at bottom-center-ish (stable for drawing)
+  let base = { x: 0, y: 0 };
+
   function resize() {
     const dpr = window.devicePixelRatio || 1;
     const w = window.innerWidth;
     const h = window.innerHeight - document.querySelector(".bar").offsetHeight;
+
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
     canvas.width = Math.floor(w * dpr);
     canvas.height = Math.floor(h * dpr);
+
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2.25;
     ctx.strokeStyle = "#000";
+
+    // Place base: 12% from bottom, centered
+    base.x = w * 0.5;
+    base.y = h * 0.88;
+
     redraw();
   }
 
-  // strokes: [{points:[{x,y,t,p}], ...}]
+  // Data
+  // strokes: [{points:[{x,y,t,p, theta:[t1,t2,t3]?}], ...}]
   let strokes = [];
   let current = null;
 
+  // State for smoothing / IK continuity
+  let lastKept = null;        // last kept point in current stroke
+  let lastRaw = null;         // last raw input sample
+  let lastAngles = [0, 0, 0]; // IK seed
+  let lastTime = null;
+
   function nowMs() { return performance.now(); }
 
-  function addPoint(e) {
+  function getPressure(e) {
+    // PointerEvent.pressure is standard (0..1). Some browsers use force.
+    if (typeof e.pressure === "number") return e.pressure;
+    if (typeof e.force === "number") return e.force;
+    return 0;
+  }
+
+  function clientToCanvasXY(e) {
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    // pressure: 0..1 (기기/브라우저에 따라 분포 다름)
-    const p = (typeof e.pressure === "number") ? e.pressure : (typeof e.force === "number" ? e.force : 0);
-    const t = nowMs();
-    current.points.push({ x, y, t, p });
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
-  function startStroke(e) {
-    // 애플펜슬/펜만 받고 싶으면 아래 조건 사용 가능
-    // if (e.pointerType && e.pointerType !== "pen") return;
-    current = { points: [] };
-    strokes.push(current);
-    addPoint(e);
-    drawLastSegment();
-    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length} | pressure: ${current.points.at(-1).p.toFixed(3)}`;
+  function clampToWorkspace(x, y) {
+    const [l1, l2, l3] = linkLengths();
+    const { rMin, rMax } = reachRadii(l1, l2, l3);
+    const dx = x - base.x;
+    const dy = y - base.y;
+    const r = hypot(dx, dy);
+    if (r === 0) {
+      // If inner radius > 0, push outward along +x
+      if (rMin > 0) return { x: base.x + rMin, y: base.y };
+      return { x, y };
+    }
+    let rr = r;
+    if (rr > rMax) rr = rMax;
+    if (rr < rMin) rr = rMin;
+    const s = rr / r;
+    return { x: base.x + dx * s, y: base.y + dy * s };
   }
 
-  function moveStroke(e) {
-    if (!current) return;
-    addPoint(e);
-    drawLastSegment();
-    const last = current.points.at(-1);
-    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length} | pressure: ${last.p.toFixed(3)}`;
+  // Forward kinematics for 3-link planar arm
+  function fk(theta, l1, l2, l3) {
+    const [t1, t2, t3] = theta;
+    const a1 = t1;
+    const a2 = t1 + t2;
+    const a3 = t1 + t2 + t3;
+
+    const x1 = base.x + l1 * Math.cos(a1);
+    const y1 = base.y + l1 * Math.sin(a1);
+
+    const x2 = x1 + l2 * Math.cos(a2);
+    const y2 = y1 + l2 * Math.sin(a2);
+
+    const x3 = x2 + l3 * Math.cos(a3);
+    const y3 = y2 + l3 * Math.sin(a3);
+
+    return { x1, y1, x2, y2, x3, y3, a1, a2, a3 };
   }
 
-  function endStroke() {
-    current = null;
+  // Jacobian 2x3 for end effector position
+  function jacobian(theta, l1, l2, l3) {
+    const [t1, t2, t3] = theta;
+    const a1 = t1;
+    const a2 = t1 + t2;
+    const a3 = t1 + t2 + t3;
+
+    // dX/dti, dY/dti (i=1..3)
+    // For planar chain: derivative is sum of -li*sin(ai) for x, +li*cos(ai) for y for all segments affected.
+    const s1 = Math.sin(a1), c1 = Math.cos(a1);
+    const s2 = Math.sin(a2), c2 = Math.cos(a2);
+    const s3 = Math.sin(a3), c3 = Math.cos(a3);
+
+    const dxd1 = -l1*s1 - l2*s2 - l3*s3;
+    const dxd2 =          - l2*s2 - l3*s3;
+    const dxd3 =                    - l3*s3;
+
+    const dyd1 =  l1*c1 + l2*c2 + l3*c3;
+    const dyd2 =           l2*c2 + l3*c3;
+    const dyd3 =                     l3*c3;
+
+    return [
+      [dxd1, dxd2, dxd3],
+      [dyd1, dyd2, dyd3],
+    ];
   }
 
-  function drawLastSegment() {
-    if (!current || current.points.length < 2) return;
-    const pts = current.points;
-    const a = pts[pts.length - 2];
-    const b = pts[pts.length - 1];
+  // Damped Least Squares IK (2D pos)
+  function ikSolve(targetX, targetY, theta0) {
+    const [l1, l2, l3] = linkLengths();
+    const iters = clamp(Number(ui.ikIters.value) || 10, 1, 100);
+    const lambda = Math.max(0, Number(ui.ikLambda.value) || 0);
+
+    let th = theta0.slice();
+
+    // Optional joint limits (keep reasonable)
+    const lim = Math.PI; // [-pi, pi]
+    const clampAngles = () => {
+      th[0] = clamp(th[0], -lim, lim);
+      th[1] = clamp(th[1], -lim, lim);
+      th[2] = clamp(th[2], -lim, lim);
+    };
+
+    for (let k = 0; k < iters; k++) {
+      const f = fk(th, l1, l2, l3);
+      const ex = targetX - f.x3;
+      const ey = targetY - f.y3;
+      const err = Math.hypot(ex, ey);
+      if (err < 0.5) break;
+
+      const J = jacobian(th, l1, l2, l3); // 2x3
+
+      // Compute dq = J^T * (J J^T + λ^2 I)^-1 * e
+      // A = JJ^T + λ^2 I is 2x2
+      const a11 = J[0][0]*J[0][0] + J[0][1]*J[0][1] + J[0][2]*J[0][2] + lambda*lambda;
+      const a12 = J[0][0]*J[1][0] + J[0][1]*J[1][1] + J[0][2]*J[1][2];
+      const a21 = a12;
+      const a22 = J[1][0]*J[1][0] + J[1][1]*J[1][1] + J[1][2]*J[1][2] + lambda*lambda;
+
+      // Invert 2x2
+      const det = a11*a22 - a12*a21;
+      if (Math.abs(det) < 1e-9) break;
+      const inv11 =  a22 / det;
+      const inv12 = -a12 / det;
+      const inv21 = -a21 / det;
+      const inv22 =  a11 / det;
+
+      // v = A^-1 * e
+      const vx = inv11*ex + inv12*ey;
+      const vy = inv21*ex + inv22*ey;
+
+      // dq = J^T * v
+      const dq1 = J[0][0]*vx + J[1][0]*vy;
+      const dq2 = J[0][1]*vx + J[1][1]*vy;
+      const dq3 = J[0][2]*vx + J[1][2]*vy;
+
+      // Step size (small for stability)
+      const step = 0.35;
+      th[0] += step * dq1;
+      th[1] += step * dq2;
+      th[2] += step * dq3;
+
+      clampAngles();
+    }
+
+    return th;
+  }
+
+  function ema(prev, next, alpha) {
+    return prev + alpha * (next - prev);
+  }
+
+  function drawWorkspace() {
+    if (!ui.showWS.checked) return;
+    const [l1, l2, l3] = linkLengths();
+    const { rMin, rMax } = reachRadii(l1, l2, l3);
+
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#bbb";
+
+    // Outer circle
     ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
+    ctx.arc(base.x, base.y, rMax, 0, Math.PI*2);
     ctx.stroke();
+
+    // Inner circle if any
+    if (rMin > 0.5) {
+      ctx.beginPath();
+      ctx.arc(base.x, base.y, rMin, 0, Math.PI*2);
+      ctx.stroke();
+    }
+
+    // Base marker
+    ctx.fillStyle = "#bbb";
+    ctx.beginPath();
+    ctx.arc(base.x, base.y, 3, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawArm(theta) {
+    if (!ui.showArm.checked) return;
+    const [l1, l2, l3] = linkLengths();
+    const f = fk(theta, l1, l2, l3);
+
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#888";
+
+    ctx.beginPath();
+    ctx.moveTo(base.x, base.y);
+    ctx.lineTo(f.x1, f.y1);
+    ctx.lineTo(f.x2, f.y2);
+    ctx.lineTo(f.x3, f.y3);
+    ctx.stroke();
+
+    ctx.fillStyle = "#888";
+    for (const [x, y] of [[base.x, base.y], [f.x1,f.y1], [f.x2,f.y2], [f.x3,f.y3]]) {
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   function redraw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    drawWorkspace();
+
+    // Draw strokes
+    ctx.save();
+    ctx.lineWidth = 2.25;
+    ctx.strokeStyle = "#000";
     for (const s of strokes) {
       const pts = s.points;
       for (let i = 1; i < pts.length; i++) {
@@ -102,24 +366,201 @@
         ctx.stroke();
       }
     }
+    ctx.restore();
+
+    // Draw arm at last angle (visual)
+    if (ui.showArm.checked) drawArm(lastAngles);
   }
 
-  // Pointer Events 우선
-  canvas.addEventListener("pointerdown", (e) => { e.preventDefault(); canvas.setPointerCapture(e.pointerId); startStroke(e); });
-  canvas.addEventListener("pointermove", (e) => { e.preventDefault(); moveStroke(e); });
-  canvas.addEventListener("pointerup",   (e) => { e.preventDefault(); endStroke(); });
-  canvas.addEventListener("pointercancel",(e)=> { e.preventDefault(); endStroke(); });
+  function drawSegment(a, b) {
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
 
-  // Buttons
-  document.getElementById("clear").onclick = () => { strokes = []; current = null; redraw(); info.textContent = "cleared"; };
+  function shouldKeepPoint(prev, next) {
+    if (!prev) return true;
+    if (!ui.resample.checked) return true;
+    const step = Math.max(1, Number(ui.stepPx.value) || 2);
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    return (dx*dx + dy*dy) >= (step*step);
+  }
+
+  function processSample(sample) {
+    // sample: {x,y,t,p} (CSS coords)
+    let { x, y, t, p } = sample;
+
+    // Workspace clamp
+    if (ui.clampWS.checked) {
+      const c = clampToWorkspace(x, y);
+      x = c.x; y = c.y;
+    }
+
+    // Smoothing (EMA)
+    if (ui.smooth.checked && lastKept) {
+      const a = Number(ui.alpha.value);
+      x = ema(lastKept.x, x, a);
+      y = ema(lastKept.y, y, a);
+      // pressure smoothing optional
+      p = ema(lastKept.p ?? p, p, a);
+    }
+
+    const point = { x, y, t, p };
+
+    // IK per point (store theta)
+    if (ui.saveTheta.checked) {
+      const th = ikSolve(x, y, lastAngles);
+      lastAngles = th;
+      point.theta = th.slice(); // radians
+    }
+
+    // Resample keep decision
+    if (shouldKeepPoint(lastKept, point)) {
+      current.points.push(point);
+
+      // Draw immediate segment for responsiveness
+      if (lastKept) drawSegment(lastKept, point);
+      lastKept = point;
+
+      if (ui.showArm.checked) {
+        // Redraw arm overlay without clearing strokes
+        redraw();
+      }
+    }
+  }
+
+  function addSampleFromEvent(e) {
+    const xy = clientToCanvasXY(e);
+    const p = getPressure(e);
+    const t = nowMs();
+
+    // Speed limiting: if very fast, insert intermediate points
+    if (ui.speedLimit.checked && lastRaw) {
+      const dt = Math.max(0.001, (t - lastRaw.t) / 1000);
+      const vmax = Math.max(50, Number(ui.maxSpeed.value) || 2500); // px/s
+      const maxDist = vmax * dt;
+
+      const dx = xy.x - lastRaw.x;
+      const dy = xy.y - lastRaw.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > maxDist) {
+        const steps = Math.ceil(dist / maxDist);
+        for (let i = 1; i <= steps; i++) {
+          const u = i / steps;
+          const xi = lastRaw.x + dx * u;
+          const yi = lastRaw.y + dy * u;
+          const ti = lastRaw.t + (t - lastRaw.t) * u;
+          const pi = lastRaw.p + (p - lastRaw.p) * u;
+          processSample({ x: xi, y: yi, t: ti, p: pi });
+        }
+        lastRaw = { x: xy.x, y: xy.y, t, p };
+        return;
+      }
+    }
+
+    processSample({ x: xy.x, y: xy.y, t, p });
+    lastRaw = { x: xy.x, y: xy.y, t, p };
+  }
+
+  function startStroke(e) {
+    if (ui.penOnly.checked && e.pointerType && e.pointerType !== "pen") return;
+
+    current = { points: [] };
+    strokes.push(current);
+
+    lastKept = null;
+    lastRaw = null;
+    lastTime = nowMs();
+
+    // Keep IK continuity across strokes, or reset if you want:
+    // lastAngles = [0,0,0];
+
+    addSampleFromEvent(e);
+
+    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length}`;
+  }
+
+  function moveStroke(e) {
+    if (!current) return;
+    if (ui.penOnly.checked && e.pointerType && e.pointerType !== "pen") return;
+
+    addSampleFromEvent(e);
+    info.textContent = `strokes: ${strokes.length} | points: ${current.points.length}`;
+  }
+
+  function endStroke() {
+    current = null;
+    lastKept = null;
+    lastRaw = null;
+  }
+
+  canvas.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    startStroke(e);
+  }, { passive: false });
+
+  canvas.addEventListener("pointermove", (e) => {
+    e.preventDefault();
+    moveStroke(e);
+  }, { passive: false });
+
+  canvas.addEventListener("pointerup", (e) => {
+    e.preventDefault();
+    endStroke();
+  }, { passive: false });
+
+  canvas.addEventListener("pointercancel", (e) => {
+    e.preventDefault();
+    endStroke();
+  }, { passive: false });
+
+  document.getElementById("clear").onclick = () => {
+    strokes = [];
+    current = null;
+    lastKept = null;
+    lastRaw = null;
+    redraw();
+    info.textContent = "cleared";
+  };
 
   document.getElementById("download").onclick = () => {
-    const meta = {
-      devicePixelRatio: window.devicePixelRatio || 1,
-      cssWidth: canvas.getBoundingClientRect().width,
-      cssHeight: canvas.getBoundingClientRect().height,
-      createdAt: new Date().toISOString()
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const [l1, l2, l3] = linkLengths();
+    const { rMin, rMax } = reachRadii(l1, l2, l3);
+
+    const settings = {
+      penOnly: ui.penOnly.checked,
+      showArm: ui.showArm.checked,
+      showWorkspace: ui.showWS.checked,
+      clampWorkspace: ui.clampWS.checked,
+      resample: ui.resample.checked,
+      stepPx: Number(ui.stepPx.value),
+      smooth: ui.smooth.checked,
+      alpha: Number(ui.alpha.value),
+      speedLimit: ui.speedLimit.checked,
+      maxSpeedPxPerSec: Number(ui.maxSpeed.value),
+      saveTheta: ui.saveTheta.checked,
+      ikIters: Number(ui.ikIters.value),
+      ikLambda: Number(ui.ikLambda.value),
+      lineWidth: 2.25
     };
+
+    const meta = {
+      createdAt: new Date().toISOString(),
+      devicePixelRatio: dpr,
+      cssWidth: rect.width,
+      cssHeight: rect.height,
+      base: { x: base.x, y: base.y },
+      linksPx: { l1, l2, l3 },
+      workspace: { rMin, rMax },
+      settings
+    };
+
     const data = { meta, strokes };
     const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -129,6 +570,11 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+
+  // Re-render when lengths or toggles change
+  ["l1","l2","l3","showWS","showArm"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => redraw());
+  });
 
   window.addEventListener("resize", resize);
   resize();
