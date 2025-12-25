@@ -3,108 +3,107 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pencil Recorder FINAL (A3 Rotate + Visible Ink Fix + Base Outside + WS Clamp + IK θ + Export)</title>
+  <title>Pencil Recorder (A3 rotate + arm overlay + modal UI)</title>
   <style>
-    :root { --bg:#fff; --fg:#111; --muted:#666; --bd:#ddd; }
-    body { margin:0; font-family:-apple-system, system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-    .bar{
-      position:sticky; top:0; z-index:20;
-      background:rgba(255,255,255,0.95);
-      backdrop-filter:saturate(180%) blur(10px);
+    :root{
+      --bg:#ffffff; --fg:#111; --muted:#666;
+      --bd:#e5e7eb; --panel:#fff;
+      --shadow:0 10px 30px rgba(0,0,0,.10);
+      --r:14px;
+    }
+    body{ margin:0; font-family:-apple-system,system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+    .top{
+      position:sticky; top:0; z-index:30;
+      background:rgba(255,255,255,.92);
+      backdrop-filter:saturate(180%) blur(12px);
       border-bottom:1px solid var(--bd);
-      padding:10px;
-      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+      padding:10px 12px;
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
     }
-    button, input[type="file"]::file-selector-button{
-      padding:10px 12px; border:1px solid #ccc; background:#fff; border-radius:10px;
+    .left,.right{ display:flex; gap:8px; align-items:center; }
+    button{
+      border:1px solid var(--bd);
+      background:var(--panel);
+      border-radius:12px;
+      padding:10px 12px;
       font:inherit;
+      cursor:pointer;
+      box-shadow: var(--shadow);
     }
-    button{ cursor:pointer; }
-    .group{ display:flex; gap:8px; align-items:center; padding:6px 8px; border:1px solid var(--bd); border-radius:12px; }
-    .group label{ font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
-    .group input[type="number"]{ width:90px; padding:6px; border:1px solid var(--bd); border-radius:8px; }
-    .group input[type="range"]{ width:140px; }
-    .title{ font-size:12px; color:var(--muted); }
-    #info{ font-size:12px; color:var(--muted); }
-    .stage{ position:relative; width:100%; height:calc(100vh - 86px); }
+    button.ghost{ box-shadow:none; background:transparent; }
+    #status{ font-size:12px; color:var(--muted); }
 
-    /* ✅ 중요: overlay가 흰 배경으로 잉크를 덮지 않도록 분리 */
+    .stage{ position:relative; width:100%; height:calc(100vh - 58px); }
+    /* ✅ 잉크/오버레이 분리: 오버레이가 잉크를 절대 덮지 않게 */
     canvas{ position:absolute; left:0; top:0; width:100%; height:100%; }
     #ink{ background:#fff; }
     #overlay{ background:transparent; pointer-events:none; }
+
+    /* ===== Modal ===== */
+    .modal-backdrop{
+      position:fixed; inset:0; z-index:100;
+      background:rgba(0,0,0,.35);
+      display:none; align-items:center; justify-content:center;
+      padding:16px;
+    }
+    .modal-backdrop.on{ display:flex; }
+    .modal{
+      width:min(980px, 100%);
+      max-height:min(86vh, 900px);
+      overflow:auto;
+      background:var(--panel);
+      border:1px solid var(--bd);
+      border-radius:18px;
+      box-shadow: var(--shadow);
+    }
+    .modal-header{
+      position:sticky; top:0;
+      background:rgba(255,255,255,.96);
+      backdrop-filter:saturate(180%) blur(10px);
+      border-bottom:1px solid var(--bd);
+      padding:12px 14px;
+      display:flex; justify-content:space-between; align-items:center;
+      gap:10px;
+    }
+    .modal-title{ font-weight:600; }
+    .modal-body{ padding:12px 14px 16px; }
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      gap:12px;
+    }
+    @media (max-width: 840px){
+      .grid{ grid-template-columns: 1fr; }
+    }
+    .card{
+      border:1px solid var(--bd);
+      border-radius:16px;
+      padding:12px;
+      background:#fff;
+    }
+    .card h3{ margin:0 0 10px; font-size:13px; color:#222; }
+    .row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0; }
+    .row label{ font-size:12px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+    .row input[type="number"]{ width:96px; padding:8px; border:1px solid var(--bd); border-radius:10px; }
+    .row input[type="range"]{ width:180px; }
+    .row input[type="checkbox"]{ transform:translateY(0.5px); }
+    .row .btnline{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+
+    .help{ font-size:12px; color:var(--muted); line-height:1.5; margin-top:8px; }
+    .divider{ height:1px; background:var(--bd); margin:10px 0; }
+    input[type="file"]{ font-size:12px; }
   </style>
 </head>
 <body>
-  <div class="bar">
-    <button id="clear">Clear</button>
-    <button id="downloadRaw">Download RAW strokes.json</button>
-
-    <div class="group">
-      <label><input id="penOnly" type="checkbox" checked>Pen only</label>
-      <label><input id="lockA3" type="checkbox" checked>Lock A3 frame</label>
-      <label><input id="a3Landscape" type="checkbox">A3 가로</label>
-      <label><input id="clampFrame" type="checkbox" checked>Clamp frame</label>
-      <label><input id="showFrame" type="checkbox" checked>Show frame</label>
+  <div class="top">
+    <div class="left">
+      <button id="clear">Clear</button>
+      <button id="downloadRaw">Download RAW</button>
+      <button id="openMenu">Menu</button>
     </div>
-
-    <div class="group">
-      <span class="title">Arm/WS:</span>
-      <label><input id="showWS" type="checkbox" checked>Workspace</label>
-      <label><input id="clampWS" type="checkbox" checked>Clamp WS</label>
-      <label><input id="showArm" type="checkbox" checked>Show arm</label>
-      <label><input id="saveTheta" type="checkbox" checked>Save θ</label>
+    <div class="right">
+      <div id="status">ready</div>
     </div>
-
-    <div class="group">
-      <span class="title">Base(프레임 기준):</span>
-      <label>u <input id="baseU" type="number" value="0.50" step="0.01" min="-1" max="2"></label>
-      <label>v <input id="baseV" type="number" value="1.12" step="0.01" min="-1" max="3"></label>
-    </div>
-
-    <div class="group">
-      <span class="title">Links(px):</span>
-      <label>l1 <input id="l1" type="number" value="260" min="10" step="1"></label>
-      <label>l2 <input id="l2" type="number" value="220" min="10" step="1"></label>
-      <label>l3 <input id="l3" type="number" value="180" min="10" step="1"></label>
-    </div>
-
-    <div class="group">
-      <span class="title">IK:</span>
-      <label>iters <input id="ikIters" type="number" value="12" min="1" step="1"></label>
-      <label>λ <input id="ikLambda" type="number" value="12" min="0" step="1"></label>
-    </div>
-
-    <div class="group">
-      <span class="title">Record:</span>
-      <label><input id="recSpeedLimit" type="checkbox" checked>Speed limit</label>
-      <label>px/s <input id="recMaxSpeed" type="number" value="2500" min="100" step="50"></label>
-      <label><input id="recResample" type="checkbox" checked>Resample</label>
-      <label>step(px) <input id="recStepPx" type="number" value="2" min="1" step="1"></label>
-      <label><input id="recSmooth" type="checkbox" checked>Smooth</label>
-      <label>α <input id="recAlpha" type="range" min="0" max="1" step="0.01" value="0.35"></label>
-    </div>
-
-    <div class="group">
-      <span class="title">Preprocess:</span>
-      <label><input id="ppResample" type="checkbox" checked>Resample</label>
-      <label>step(A3px) <input id="ppStep" type="number" value="8" min="1" step="1"></label>
-      <label><input id="ppSmooth" type="checkbox" checked>Smooth</label>
-      <label>k <input id="ppK" type="number" value="5" min="1" step="2"></label>
-    </div>
-
-    <div class="group">
-      <span class="title">Export:</span>
-      <button id="exportCleanJson">CLEAN strokes.json</button>
-      <button id="exportJsonl">JSONL sequence</button>
-      <button id="exportA3Png">A3 PNG</button>
-    </div>
-
-    <div class="group">
-      <span class="title">Import:</span>
-      <input id="importJson" type="file" accept=".json,application/json">
-    </div>
-
-    <div id="info">A3 회전 + 베이스 캔버스 밖(기본 v=1.12) + overlay 투명 처리(선 보임) + IK θ 저장.</div>
   </div>
 
   <div class="stage">
@@ -112,9 +111,150 @@
     <canvas id="overlay"></canvas>
   </div>
 
+  <!-- Modal -->
+  <div class="modal-backdrop" id="backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Settings">
+      <div class="modal-header">
+        <div class="modal-title">Pencil Recorder 설정</div>
+        <div class="row" style="margin:0">
+          <button id="closeMenu" class="ghost">닫기</button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <div class="grid">
+
+          <div class="card">
+            <h3>A3 Frame</h3>
+            <div class="row">
+              <label><input id="lockA3" type="checkbox" checked> Lock A3 frame</label>
+              <label><input id="a3Landscape" type="checkbox"> A3 가로</label>
+            </div>
+            <div class="row">
+              <label><input id="showFrame" type="checkbox" checked> Show frame</label>
+              <label><input id="clampFrame" type="checkbox" checked> Clamp frame</label>
+            </div>
+            <div class="help">
+              A3 가로/세로는 프레임 비율 + PNG 출력 해상도(300dpi)를 함께 바꿉니다.
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Arm / Workspace</h3>
+            <div class="row">
+              <label><input id="showWS" type="checkbox" checked> Workspace 표시</label>
+              <label><input id="clampWS" type="checkbox" checked> Clamp WS</label>
+            </div>
+            <div class="row">
+              <label><input id="showArm" type="checkbox" checked> Show arm</label>
+              <label><input id="saveTheta" type="checkbox" checked> Save θ</label>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="row">
+              <label>Base u</label>
+              <input id="baseU" type="number" value="0.50" step="0.01" min="-1" max="2">
+            </div>
+            <div class="row">
+              <label>Base v (v&gt;1이면 프레임 아래 바깥)</label>
+              <input id="baseV" type="number" value="1.12" step="0.01" min="-1" max="3">
+            </div>
+
+            <div class="help">
+              “로봇팔의 끝(펜)이 프레임 전체에 닿게” 하려면 보통 베이스를 프레임 바깥(아래)으로 두는 게 유리합니다.
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Links / IK</h3>
+            <div class="row">
+              <label>l1</label><input id="l1" type="number" value="260" min="10" step="1">
+            </div>
+            <div class="row">
+              <label>l2</label><input id="l2" type="number" value="220" min="10" step="1">
+            </div>
+            <div class="row">
+              <label>l3</label><input id="l3" type="number" value="180" min="10" step="1">
+            </div>
+            <div class="divider"></div>
+            <div class="row">
+              <label>IK iters</label><input id="ikIters" type="number" value="12" min="1" step="1">
+            </div>
+            <div class="row">
+              <label>λ (댐핑)</label><input id="ikLambda" type="number" value="12" min="0" step="1">
+            </div>
+            <div class="help">
+              팔이 튀면 λ를 올리고, 느리면 iters를 줄이거나 λ를 낮추세요.
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Record (기록 중 안정화)</h3>
+            <div class="row">
+              <label><input id="penOnly" type="checkbox" checked> Pen only</label>
+              <span class="help" style="margin:0">마우스/손가락 입력 차단</span>
+            </div>
+            <div class="row">
+              <label><input id="recSpeedLimit" type="checkbox" checked> Speed limit</label>
+              <input id="recMaxSpeed" type="number" value="2500" min="100" step="50">
+            </div>
+            <div class="row">
+              <label><input id="recResample" type="checkbox" checked> Resample</label>
+              <input id="recStepPx" type="number" value="2" min="1" step="1">
+            </div>
+            <div class="row">
+              <label><input id="recSmooth" type="checkbox" checked> Smooth α</label>
+              <input id="recAlpha" type="range" min="0" max="1" step="0.01" value="0.35">
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Preprocess (Export 시 적용)</h3>
+            <div class="row">
+              <label><input id="ppResample" type="checkbox" checked> Resample</label>
+              <input id="ppStep" type="number" value="8" min="1" step="1">
+            </div>
+            <div class="row">
+              <label><input id="ppSmooth" type="checkbox" checked> Smooth k</label>
+              <input id="ppK" type="number" value="5" min="1" step="2">
+            </div>
+            <div class="help">
+              step(A3px)는 CLEAN/PNG/JSONL에 동일 적용됩니다.
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Export / Import</h3>
+            <div class="row">
+              <div class="btnline">
+                <button id="exportCleanJson">CLEAN JSON</button>
+                <button id="exportJsonl">JSONL</button>
+                <button id="exportA3Png">A3 PNG</button>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="row">
+              <label>Import</label>
+              <input id="importJson" type="file" accept=".json,application/json">
+            </div>
+            <div class="help">
+              Import는 저장한 strokes.json을 다시 불러와 화면에서 검수/이어그리기 하는 용도입니다.
+            </div>
+          </div>
+
+        </div>
+
+        <div class="help" style="margin-top:10px">
+          로봇팔이 안 보이면: Menu → Arm/Workspace → Show arm / Workspace 체크가 켜져 있는지 확인하세요.
+        </div>
+      </div>
+    </div>
+  </div>
+
 <script>
 (() => {
-  // ====== A3 spec (portrait/landscape) ======
+  // ====== A3 spec ======
   const A3_PORTRAIT  = { mmW: 297, mmH: 420, pxW: 3508, pxH: 4961, ratio: 297/420, orientation: "portrait" };
   const A3_LANDSCAPE = { mmW: 420, mmH: 297, pxW: 4961, pxH: 3508, ratio: 420/297, orientation: "landscape" };
 
@@ -123,14 +263,25 @@
   const ov  = document.getElementById("overlay");
   const ctx = ink.getContext("2d", { desynchronized:true });
   const g   = ov.getContext("2d",  { desynchronized:true });
-  const info = document.getElementById("info");
+  const status = document.getElementById("status");
 
   const ui = {
+    // menu
+    openMenu: document.getElementById("openMenu"),
+    closeMenu: document.getElementById("closeMenu"),
+    backdrop: document.getElementById("backdrop"),
+
+    // top
+    clear: document.getElementById("clear"),
+    downloadRaw: document.getElementById("downloadRaw"),
+
+    // toggles/inputs
     penOnly: document.getElementById("penOnly"),
+
     lockA3: document.getElementById("lockA3"),
     a3Landscape: document.getElementById("a3Landscape"),
-    clampFrame: document.getElementById("clampFrame"),
     showFrame: document.getElementById("showFrame"),
+    clampFrame: document.getElementById("clampFrame"),
 
     showWS: document.getElementById("showWS"),
     clampWS: document.getElementById("clampWS"),
@@ -159,10 +310,29 @@
     ppSmooth: document.getElementById("ppSmooth"),
     ppK: document.getElementById("ppK"),
 
+    exportCleanJson: document.getElementById("exportCleanJson"),
+    exportJsonl: document.getElementById("exportJsonl"),
+    exportA3Png: document.getElementById("exportA3Png"),
     importJson: document.getElementById("importJson"),
   };
 
-  ink.addEventListener("contextmenu", (e)=>e.preventDefault(), {passive:false});
+  // ====== modal behavior ======
+  function openModal(){
+    ui.backdrop.classList.add("on");
+    ui.backdrop.setAttribute("aria-hidden","false");
+  }
+  function closeModal(){
+    ui.backdrop.classList.remove("on");
+    ui.backdrop.setAttribute("aria-hidden","true");
+  }
+  ui.openMenu.onclick = openModal;
+  ui.closeMenu.onclick = closeModal;
+  ui.backdrop.addEventListener("mousedown", (e)=>{
+    if (e.target === ui.backdrop) closeModal();
+  });
+  window.addEventListener("keydown", (e)=>{
+    if (e.key === "Escape") closeModal();
+  });
 
   // ====== helpers ======
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
@@ -174,94 +344,84 @@
     if (typeof e.force === "number") return e.force;
     return 0.5;
   }
-
-  function a3Spec(){
-    return ui.a3Landscape.checked ? A3_LANDSCAPE : A3_PORTRAIT;
-  }
-
-  function linkLengths(){
-    return [Number(ui.l1.value), Number(ui.l2.value), Number(ui.l3.value)];
-  }
-
+  function a3Spec(){ return ui.a3Landscape.checked ? A3_LANDSCAPE : A3_PORTRAIT; }
+  function linkLengths(){ return [Number(ui.l1.value), Number(ui.l2.value), Number(ui.l3.value)]; }
   function reachRadii(l1,l2,l3){
-    const sum = l1+l2+l3;
-    const mx = Math.max(l1,l2,l3);
-    const inner = Math.max(0, mx - (sum - mx));
+    const sum=l1+l2+l3;
+    const mx=Math.max(l1,l2,l3);
+    const inner=Math.max(0, mx - (sum - mx));
     return { rMin: inner, rMax: sum };
   }
 
-  // ====== frame + base ======
-  let dpr = 1;
-  let viewW = 0, viewH = 0;
-  let drawRect = {x:0,y:0,w:0,h:0};
-
-  // 베이스: 프레임 기준 u,v (v>1이면 프레임 바깥 아래)
-  let baseUV = { u: 0.5, v: 1.12 };
-  let baseCss = { x:0, y:0 };
+  // ====== layout ======
+  let dpr=1, viewW=0, viewH=0;
+  let drawRect={x:0,y:0,w:0,h:0};
+  let baseUV={u:0.5,v:1.12};
+  let baseCss={x:0,y:0};
 
   function computeDrawRect(w,h){
-    if (!ui.lockA3.checked) return {x:0,y:0,w:w,h:h};
+    if (!ui.lockA3.checked) return {x:0,y:0,w,h};
     const ratio = a3Spec().ratio;
-    let hh = h;
-    let ww = hh * ratio;
-    if (ww > w){ ww = w; hh = ww / ratio; }
+    let hh=h, ww=hh*ratio;
+    if (ww>w){ ww=w; hh=ww/ratio; }
     return { x:(w-ww)*0.5, y:(h-hh)*0.5, w:ww, h:hh };
   }
 
   function updateBase(){
-    // baseUV는 프레임 좌표계 기준 (u,v) -> baseCss로 변환
     baseUV.u = Number(ui.baseU.value);
     baseUV.v = Number(ui.baseV.value);
     baseCss.x = drawRect.x + drawRect.w * baseUV.u;
     baseCss.y = drawRect.y + drawRect.h * baseUV.v;
   }
 
+  function setCanvasSize(c){
+    c.width = Math.floor(viewW*dpr);
+    c.height = Math.floor(viewH*dpr);
+    c.style.width = viewW+"px";
+    c.style.height = viewH+"px";
+  }
+  function applyTransform(context){ context.setTransform(dpr,0,0,dpr,0,0); }
+
   function clampToFrame(x,y){
-    return {
-      x: clamp(x, drawRect.x, drawRect.x + drawRect.w),
-      y: clamp(y, drawRect.y, drawRect.y + drawRect.h),
-    };
+    return { x:clamp(x, drawRect.x, drawRect.x+drawRect.w),
+             y:clamp(y, drawRect.y, drawRect.y+drawRect.h) };
   }
-
   function toUV(x,y){
-    const u = (x - drawRect.x) / drawRect.w;
-    const v = (y - drawRect.y) / drawRect.h;
-    return { u: clamp(u,0,1), v: clamp(v,0,1) };
+    const u=(x-drawRect.x)/drawRect.w;
+    const v=(y-drawRect.y)/drawRect.h;
+    return { u:clamp(u,0,1), v:clamp(v,0,1) };
   }
 
-  // workspace clamp around baseCss
   function clampToWorkspace(x,y){
-    const [l1,l2,l3] = linkLengths();
-    const {rMin, rMax} = reachRadii(l1,l2,l3);
-    const dx = x - baseCss.x;
-    const dy = y - baseCss.y;
-    const r = hypot(dx,dy);
-    if (r === 0){
-      if (rMin > 0) return {x: baseCss.x + rMin, y: baseCss.y};
+    const [l1,l2,l3]=linkLengths();
+    const {rMin,rMax}=reachRadii(l1,l2,l3);
+    const dx=x-baseCss.x, dy=y-baseCss.y;
+    const r=hypot(dx,dy);
+    if (r===0){
+      if (rMin>0) return {x:baseCss.x+rMin, y:baseCss.y};
       return {x,y};
     }
-    let rr = r;
-    if (rr > rMax) rr = rMax;
-    if (rr < rMin) rr = rMin;
-    const s = rr / r;
-    return { x: baseCss.x + dx*s, y: baseCss.y + dy*s };
+    let rr=r;
+    if (rr>rMax) rr=rMax;
+    if (rr<rMin) rr=rMin;
+    const s=rr/r;
+    return { x:baseCss.x+dx*s, y:baseCss.y+dy*s };
   }
 
-  // ====== IK (damped least squares) ======
+  // ====== IK ======
   function fk(theta,l1,l2,l3){
-    const [t1,t2,t3] = theta;
+    const [t1,t2,t3]=theta;
     const a1=t1, a2=t1+t2, a3=t1+t2+t3;
-    const x1 = baseCss.x + l1*Math.cos(a1);
-    const y1 = baseCss.y + l1*Math.sin(a1);
-    const x2 = x1 + l2*Math.cos(a2);
-    const y2 = y1 + l2*Math.sin(a2);
-    const x3 = x2 + l3*Math.cos(a3);
-    const y3 = y2 + l3*Math.sin(a3);
-    return {x1,y1,x2,y2,x3,y3,a1,a2,a3};
+    const x1=baseCss.x + l1*Math.cos(a1);
+    const y1=baseCss.y + l1*Math.sin(a1);
+    const x2=x1 + l2*Math.cos(a2);
+    const y2=y1 + l2*Math.sin(a2);
+    const x3=x2 + l3*Math.cos(a3);
+    const y3=y2 + l3*Math.sin(a3);
+    return {x1,y1,x2,y2,x3,y3};
   }
-
   function jacobian(theta,l1,l2,l3){
-    const [t1,t2,t3] = theta;
+    const [t1,t2,t3]=theta;
     const a1=t1, a2=t1+t2, a3=t1+t2+t3;
     const s1=Math.sin(a1), c1=Math.cos(a1);
     const s2=Math.sin(a2), c2=Math.cos(a2);
@@ -277,29 +437,20 @@
 
     return [[dxd1,dxd2,dxd3],[dyd1,dyd2,dyd3]];
   }
+  let lastAngles=[0,0,0];
 
   function ikSolve(targetX,targetY,theta0){
-    const [l1,l2,l3] = linkLengths();
-    const iters = clamp(Number(ui.ikIters.value)||12, 1, 300);
-    const lambda = Math.max(0, Number(ui.ikLambda.value)||0);
+    const [l1,l2,l3]=linkLengths();
+    const iters=clamp(Number(ui.ikIters.value)||12,1,300);
+    const lambda=Math.max(0, Number(ui.ikLambda.value)||0);
 
-    let th = theta0.slice();
-    const lim = Math.PI; // 간단 제한
-    const clampAngles = ()=>{
-      th[0]=clamp(th[0],-lim,lim);
-      th[1]=clamp(th[1],-lim,lim);
-      th[2]=clamp(th[2],-lim,lim);
-    };
-
+    let th=theta0.slice();
     for (let k=0;k<iters;k++){
-      const f = fk(th,l1,l2,l3);
-      const ex = targetX - f.x3;
-      const ey = targetY - f.y3;
+      const f=fk(th,l1,l2,l3);
+      const ex=targetX-f.x3, ey=targetY-f.y3;
       if (Math.hypot(ex,ey) < 0.5) break;
 
-      const J = jacobian(th,l1,l2,l3);
-
-      // A = JJ^T + λ^2 I  (2x2)
+      const J=jacobian(th,l1,l2,l3);
       const a11 = J[0][0]*J[0][0] + J[0][1]*J[0][1] + J[0][2]*J[0][2] + lambda*lambda;
       const a12 = J[0][0]*J[1][0] + J[0][1]*J[1][1] + J[0][2]*J[1][2];
       const a21 = a12;
@@ -308,96 +459,72 @@
       const det = a11*a22 - a12*a21;
       if (Math.abs(det) < 1e-9) break;
 
-      const inv11 =  a22/det, inv12 = -a12/det;
-      const inv21 = -a21/det, inv22 =  a11/det;
+      const inv11=a22/det, inv12=-a12/det;
+      const inv21=-a21/det, inv22=a11/det;
 
-      const vx = inv11*ex + inv12*ey;
-      const vy = inv21*ex + inv22*ey;
+      const vx=inv11*ex + inv12*ey;
+      const vy=inv21*ex + inv22*ey;
 
       const dq1 = J[0][0]*vx + J[1][0]*vy;
       const dq2 = J[0][1]*vx + J[1][1]*vy;
       const dq3 = J[0][2]*vx + J[1][2]*vy;
 
-      const step = 0.35;
-      th[0] += step*dq1;
-      th[1] += step*dq2;
-      th[2] += step*dq3;
-
-      clampAngles();
+      const step=0.35;
+      th[0]+=step*dq1; th[1]+=step*dq2; th[2]+=step*dq3;
     }
     return th;
   }
 
-  // ====== canvas resize ======
-  function setCanvasSize(c){
-    c.width = Math.floor(viewW * dpr);
-    c.height = Math.floor(viewH * dpr);
-    c.style.width = viewW + "px";
-    c.style.height = viewH + "px";
-  }
-
-  function applyTransform(context){
-    context.setTransform(dpr,0,0,dpr,0,0);
-  }
-
-  // ====== overlay drawing ======
-  let lastAngles = [0,0,0];
-
+  // ====== overlay render ======
   function redrawOverlay(){
     applyTransform(g);
     g.clearRect(0,0,viewW,viewH);
 
-    // frame mask (overlay transparent이므로 회색 마스크만 그려서 프레임을 강조)
+    // frame mask
     if (ui.showFrame.checked){
       g.save();
-      g.fillStyle = "rgba(240,240,240,0.92)";
-      // left
+      g.fillStyle="rgba(240,240,240,0.92)";
       g.fillRect(0,0,drawRect.x,viewH);
-      // right
-      g.fillRect(drawRect.x + drawRect.w, 0, viewW - (drawRect.x + drawRect.w), viewH);
-      // top
-      g.fillRect(drawRect.x, 0, drawRect.w, drawRect.y);
-      // bottom
-      g.fillRect(drawRect.x, drawRect.y + drawRect.h, drawRect.w, viewH - (drawRect.y + drawRect.h));
+      g.fillRect(drawRect.x+drawRect.w,0,viewW-(drawRect.x+drawRect.w),viewH);
+      g.fillRect(drawRect.x,0,drawRect.w,drawRect.y);
+      g.fillRect(drawRect.x,drawRect.y+drawRect.h,drawRect.w,viewH-(drawRect.y+drawRect.h));
 
-      g.lineWidth = 1.25;
-      g.strokeStyle = "#bbb";
-      g.strokeRect(drawRect.x, drawRect.y, drawRect.w, drawRect.h);
+      g.lineWidth=1.25;
+      g.strokeStyle="#bbb";
+      g.strokeRect(drawRect.x,drawRect.y,drawRect.w,drawRect.h);
       g.restore();
     }
 
-    // workspace circles + base
+    // workspace + base
     if (ui.showWS.checked){
-      const [l1,l2,l3] = linkLengths();
-      const {rMin, rMax} = reachRadii(l1,l2,l3);
-
+      const [l1,l2,l3]=linkLengths();
+      const {rMin,rMax}=reachRadii(l1,l2,l3);
       g.save();
-      g.lineWidth = 1;
-      g.strokeStyle = "#bbb";
-      g.beginPath(); g.arc(baseCss.x, baseCss.y, rMax, 0, Math.PI*2); g.stroke();
-      if (rMin > 0.5){ g.beginPath(); g.arc(baseCss.x, baseCss.y, rMin, 0, Math.PI*2); g.stroke(); }
-
-      g.fillStyle = "#bbb";
-      g.beginPath(); g.arc(baseCss.x, baseCss.y, 3, 0, Math.PI*2); g.fill();
+      g.lineWidth=1;
+      g.strokeStyle="#bbb";
+      g.beginPath(); g.arc(baseCss.x,baseCss.y,rMax,0,Math.PI*2); g.stroke();
+      if (rMin>0.5){ g.beginPath(); g.arc(baseCss.x,baseCss.y,rMin,0,Math.PI*2); g.stroke(); }
+      g.fillStyle="#bbb";
+      g.beginPath(); g.arc(baseCss.x,baseCss.y,3,0,Math.PI*2); g.fill();
       g.restore();
     }
 
     // arm
     if (ui.showArm.checked){
-      const [l1,l2,l3] = linkLengths();
-      const f = fk(lastAngles,l1,l2,l3);
+      const [l1,l2,l3]=linkLengths();
+      const f=fk(lastAngles,l1,l2,l3);
 
       g.save();
-      g.lineWidth = 2;
-      g.strokeStyle = "#888";
+      g.lineWidth=2;
+      g.strokeStyle="#888";
       g.beginPath();
-      g.moveTo(baseCss.x, baseCss.y);
+      g.moveTo(baseCss.x,baseCss.y);
       g.lineTo(f.x1,f.y1);
       g.lineTo(f.x2,f.y2);
       g.lineTo(f.x3,f.y3);
       g.stroke();
 
-      g.fillStyle = "#888";
+      g.fillStyle="#888";
       for (const [x,y] of [[baseCss.x,baseCss.y],[f.x1,f.y1],[f.x2,f.y2],[f.x3,f.y3]]){
         g.beginPath(); g.arc(x,y,3,0,Math.PI*2); g.fill();
       }
@@ -405,27 +532,27 @@
     }
   }
 
-  // ====== ink data + redraw ======
-  let strokes = []; // [{points:[{x,y,u,v,t,p,theta?}], ...}]
-  let current = null;
-  let lastKept = null;
-  let lastRaw = null;
+  // ====== ink data ======
+  let strokes=[];       // [{points:[{x,y,u,v,t,p,theta?}], ...}]
+  let current=null;
+  let lastKept=null;
+  let lastRaw=null;
 
   function redrawAllInk(){
     applyTransform(ctx);
     ctx.clearRect(0,0,viewW,viewH);
     ctx.save();
-    ctx.lineWidth = 2.25;
-    ctx.strokeStyle = "#000";
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    ctx.lineWidth=2.25;
+    ctx.strokeStyle="#000";
+    ctx.lineCap="round";
+    ctx.lineJoin="round";
 
     for (const s of strokes){
-      const pts = s.points || [];
+      const pts=s.points||[];
       for (let i=1;i<pts.length;i++){
         ctx.beginPath();
-        ctx.moveTo(pts[i-1].x, pts[i-1].y);
-        ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.moveTo(pts[i-1].x,pts[i-1].y);
+        ctx.lineTo(pts[i].x,pts[i].y);
         ctx.stroke();
       }
     }
@@ -433,481 +560,377 @@
   }
 
   function resize(){
-    dpr = window.devicePixelRatio || 1;
-    viewW = window.innerWidth;
-    viewH = window.innerHeight - document.querySelector(".bar").offsetHeight;
+    dpr=window.devicePixelRatio||1;
+    viewW=window.innerWidth;
+    viewH=window.innerHeight - document.querySelector(".top").offsetHeight;
 
     setCanvasSize(ink);
     setCanvasSize(ov);
 
-    applyTransform(ctx);
-    applyTransform(g);
-
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 2.25;
-    ctx.strokeStyle = "#000";
-
-    drawRect = computeDrawRect(viewW, viewH);
+    drawRect = computeDrawRect(viewW,viewH);
     updateBase();
 
     redrawAllInk();
     redrawOverlay();
   }
-
   window.addEventListener("resize", resize);
 
   // ====== record pipeline ======
-  const ema = (prev, next, alpha)=> prev + alpha*(next - prev);
+  const ema=(prev,next,a)=> prev + a*(next-prev);
 
-  function shouldKeepPoint(prev, next){
+  function shouldKeepPoint(prev,next){
     if (!prev) return true;
     if (!ui.recResample.checked) return true;
-    const step = Math.max(1, Number(ui.recStepPx.value)||2);
-    const dx = next.x - prev.x;
-    const dy = next.y - prev.y;
-    return (dx*dx + dy*dy) >= step*step;
+    const step=Math.max(1, Number(ui.recStepPx.value)||2);
+    const dx=next.x-prev.x, dy=next.y-prev.y;
+    return (dx*dx+dy*dy) >= step*step;
   }
 
   function processSample(sample){
-    let {x,y,t,p} = sample;
+    let {x,y,t,p}=sample;
 
     if (ui.clampFrame.checked){
-      const c = clampToFrame(x,y);
-      x=c.x; y=c.y;
+      const c=clampToFrame(x,y); x=c.x; y=c.y;
     }
     if (ui.clampWS.checked){
-      const c = clampToWorkspace(x,y);
-      x=c.x; y=c.y;
+      const c=clampToWorkspace(x,y); x=c.x; y=c.y;
     }
 
-    // record-time smoothing (EMA)
     if (ui.recSmooth.checked && lastKept){
-      const a = Number(ui.recAlpha.value);
-      x = ema(lastKept.x, x, a);
-      y = ema(lastKept.y, y, a);
-      p = ema(lastKept.p ?? p, p, a);
+      const a=Number(ui.recAlpha.value);
+      x=ema(lastKept.x,x,a);
+      y=ema(lastKept.y,y,a);
+      p=ema(lastKept.p ?? p, p, a);
     }
 
-    const uv = toUV(x,y);
-    const pt = { x, y, u: uv.u, v: uv.v, t, p };
+    const uv=toUV(x,y);
+    const pt={ x,y,u:uv.u,v:uv.v,t,p };
 
     if (ui.saveTheta.checked){
-      const th = ikSolve(x,y,lastAngles);
-      lastAngles = th;
-      pt.theta = th.slice(); // radians
+      const th=ikSolve(x,y,lastAngles);
+      lastAngles=th;
+      pt.theta=th.slice();
     }
 
-    if (!shouldKeepPoint(lastKept, pt)) return;
+    if (!shouldKeepPoint(lastKept,pt)) return;
 
     current.points.push(pt);
 
-    // incremental draw
     if (lastKept){
       ctx.beginPath();
-      ctx.moveTo(lastKept.x, lastKept.y);
-      ctx.lineTo(pt.x, pt.y);
+      ctx.moveTo(lastKept.x,lastKept.y);
+      ctx.lineTo(pt.x,pt.y);
       ctx.stroke();
     }
-    lastKept = pt;
-
+    lastKept=pt;
     redrawOverlay();
   }
 
   function addSampleFromEvent(e){
-    const rect = ink.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const p = getPressure(e);
-    const t = nowMs();
+    const rect=ink.getBoundingClientRect();
+    const x=e.clientX-rect.left;
+    const y=e.clientY-rect.top;
+    const p=getPressure(e);
+    const t=nowMs();
 
-    // speed limit: interpolate
     if (ui.recSpeedLimit.checked && lastRaw){
-      const dt = Math.max(0.001, (t - lastRaw.t)/1000);
-      const vmax = Math.max(50, Number(ui.recMaxSpeed.value)||2500);
-      const maxDist = vmax * dt;
+      const dt=Math.max(0.001,(t-lastRaw.t)/1000);
+      const vmax=Math.max(50, Number(ui.recMaxSpeed.value)||2500);
+      const maxDist=vmax*dt;
+      const dx=x-lastRaw.x, dy=y-lastRaw.y;
+      const dist=Math.hypot(dx,dy);
 
-      const dx = x - lastRaw.x;
-      const dy = y - lastRaw.y;
-      const dist = Math.hypot(dx,dy);
-
-      if (dist > maxDist){
-        const steps = Math.ceil(dist / maxDist);
+      if (dist>maxDist){
+        const steps=Math.ceil(dist/maxDist);
         for (let i=1;i<=steps;i++){
-          const u = i/steps;
+          const u=i/steps;
           processSample({
-            x: lastRaw.x + dx*u,
-            y: lastRaw.y + dy*u,
-            t: lastRaw.t + (t - lastRaw.t)*u,
-            p: lastRaw.p + (p - lastRaw.p)*u,
+            x:lastRaw.x+dx*u,
+            y:lastRaw.y+dy*u,
+            t:lastRaw.t+(t-lastRaw.t)*u,
+            p:lastRaw.p+(p-lastRaw.p)*u
           });
         }
-        lastRaw = {x,y,t,p};
+        lastRaw={x,y,t,p};
         return;
       }
     }
 
     processSample({x,y,t,p});
-    lastRaw = {x,y,t,p};
+    lastRaw={x,y,t,p};
   }
 
   function startStroke(e){
-    if (ui.penOnly.checked && e.pointerType && e.pointerType !== "pen") return;
-    current = { points: [] };
+    if (ui.penOnly.checked && e.pointerType && e.pointerType!=="pen") return;
+    current={points:[]};
     strokes.push(current);
-    lastKept = null;
-    lastRaw = null;
+    lastKept=null;
+    lastRaw=null;
     addSampleFromEvent(e);
-    info.textContent = `strokes: ${strokes.length} | last points: ${current.points.length}`;
+    status.textContent = `strokes: ${strokes.length}`;
   }
-
   function moveStroke(e){
     if (!current) return;
-    if (ui.penOnly.checked && e.pointerType && e.pointerType !== "pen") return;
+    if (ui.penOnly.checked && e.pointerType && e.pointerType!=="pen") return;
     addSampleFromEvent(e);
-    info.textContent = `strokes: ${strokes.length} | last points: ${current.points.length}`;
   }
-
   function endStroke(){
-    current = null;
-    lastKept = null;
-    lastRaw = null;
-    info.textContent = `strokes: ${strokes.length}`;
+    current=null; lastKept=null; lastRaw=null;
+    status.textContent = `strokes: ${strokes.length}`;
   }
 
-  ink.addEventListener("pointerdown", (e)=>{ e.preventDefault(); ink.setPointerCapture(e.pointerId); startStroke(e); }, {passive:false});
-  ink.addEventListener("pointermove", (e)=>{ e.preventDefault(); moveStroke(e); }, {passive:false});
-  ink.addEventListener("pointerup", (e)=>{ e.preventDefault(); endStroke(); }, {passive:false});
-  ink.addEventListener("pointercancel", (e)=>{ e.preventDefault(); endStroke(); }, {passive:false});
+  ink.addEventListener("pointerdown",(e)=>{ e.preventDefault(); ink.setPointerCapture(e.pointerId); startStroke(e); },{passive:false});
+  ink.addEventListener("pointermove",(e)=>{ e.preventDefault(); moveStroke(e); },{passive:false});
+  ink.addEventListener("pointerup",(e)=>{ e.preventDefault(); endStroke(); },{passive:false});
+  ink.addEventListener("pointercancel",(e)=>{ e.preventDefault(); endStroke(); },{passive:false});
 
-  // ====== meta/build/download ======
+  // ====== meta/export ======
   function buildMeta(){
-    const [l1,l2,l3] = linkLengths();
-    const {rMin,rMax} = reachRadii(l1,l2,l3);
-    const spec = a3Spec();
-
+    const [l1,l2,l3]=linkLengths();
+    const {rMin,rMax}=reachRadii(l1,l2,l3);
+    const spec=a3Spec();
     return {
-      createdAt: new Date().toISOString(),
-      devicePixelRatio: dpr,
-      canvasCss: { width: viewW, height: viewH },
-      drawRectCss: drawRect,
-
-      a3: {
-        orientation: spec.orientation,
-        mm: { w: spec.mmW, h: spec.mmH },
-        dpiTarget: 300,
-        pxTarget: { w: spec.pxW, h: spec.pxH }
-      },
-
-      arm: {
-        linksPx: { l1,l2,l3 },
-        workspace: { rMin, rMax },
-        baseUV: { ...baseUV },
-        baseCss: { ...baseCss },
-        note: "baseUV는 프레임 기준이며 v>1이면 프레임 바깥 아래 위치"
-      },
-
-      settings: {
-        penOnly: ui.penOnly.checked,
-        lockA3: ui.lockA3.checked,
-        a3Landscape: ui.a3Landscape.checked,
-        clampFrame: ui.clampFrame.checked,
-        showFrame: ui.showFrame.checked,
-        showWS: ui.showWS.checked,
-        clampWS: ui.clampWS.checked,
-        showArm: ui.showArm.checked,
-        saveTheta: ui.saveTheta.checked,
-        ikIters: Number(ui.ikIters.value),
-        ikLambda: Number(ui.ikLambda.value),
-        record: {
-          speedLimit: ui.recSpeedLimit.checked,
-          maxSpeedPxPerSec: Number(ui.recMaxSpeed.value),
-          resample: ui.recResample.checked,
-          stepPx: Number(ui.recStepPx.value),
-          smooth: ui.recSmooth.checked,
-          alpha: Number(ui.recAlpha.value),
+      createdAt:new Date().toISOString(),
+      a3:{ orientation:spec.orientation, mm:{w:spec.mmW,h:spec.mmH}, dpiTarget:300, pxTarget:{w:spec.pxW,h:spec.pxH} },
+      drawRectCss:drawRect,
+      arm:{ linksPx:{l1,l2,l3}, workspace:{rMin,rMax}, baseUV:{...baseUV}, baseCss:{...baseCss} },
+      settings:{
+        penOnly:ui.penOnly.checked,
+        lockA3:ui.lockA3.checked,
+        a3Landscape:ui.a3Landscape.checked,
+        showFrame:ui.showFrame.checked,
+        clampFrame:ui.clampFrame.checked,
+        showWS:ui.showWS.checked,
+        clampWS:ui.clampWS.checked,
+        showArm:ui.showArm.checked,
+        saveTheta:ui.saveTheta.checked,
+        ikIters:Number(ui.ikIters.value),
+        ikLambda:Number(ui.ikLambda.value),
+        record:{
+          speedLimit:ui.recSpeedLimit.checked,
+          maxSpeedPxPerSec:Number(ui.recMaxSpeed.value),
+          resample:ui.recResample.checked,
+          stepPx:Number(ui.recStepPx.value),
+          smooth:ui.recSmooth.checked,
+          alpha:Number(ui.recAlpha.value),
+        },
+        preprocess:{
+          resample:ui.ppResample.checked,
+          stepA3px:Number(ui.ppStep.value),
+          smooth:ui.ppSmooth.checked,
+          k:Number(ui.ppK.value),
         }
       }
     };
   }
 
   function downloadBlob(blob, filename){
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=filename; a.click();
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
   }
-
   function downloadJSON(obj, filename){
-    downloadBlob(new Blob([JSON.stringify(obj)], {type:"application/json"}), filename);
+    downloadBlob(new Blob([JSON.stringify(obj)],{type:"application/json"}), filename);
   }
 
-  document.getElementById("downloadRaw").onclick = ()=>{
-    downloadJSON({ meta: buildMeta(), strokes }, "strokes.json");
+  ui.downloadRaw.onclick = ()=> downloadJSON({meta:buildMeta(),strokes}, "strokes.json");
+  ui.clear.onclick = ()=>{
+    strokes=[]; current=null; lastKept=null; lastRaw=null; lastAngles=[0,0,0];
+    redrawAllInk(); redrawOverlay();
+    status.textContent="cleared";
   };
 
-  document.getElementById("clear").onclick = ()=>{
-    strokes = [];
-    current = null;
-    lastKept = null;
-    lastRaw = null;
-    lastAngles = [0,0,0];
-    redrawAllInk();
-    redrawOverlay();
-    info.textContent = "cleared";
-  };
+  // preprocess
+  function uvDist(a,b){ return Math.hypot(a.u-b.u, a.v-b.v); }
 
-  // ====== preprocess (smooth + resample in UV, keeping theta) ======
-  function uvDist(a,b){
-    const du=a.u-b.u, dv=a.v-b.v;
-    return Math.hypot(du,dv);
-  }
-
-  function movingAverage(points, k){
-    if (k <= 1 || points.length < k) return points;
-    const half = Math.floor(k/2);
-    const out = [];
+  function movingAverage(points,k){
+    if (k<=1 || points.length<k) return points;
+    const half=Math.floor(k/2);
+    const out=[];
     for (let i=0;i<points.length;i++){
-      const lo = Math.max(0, i-half);
-      const hi = Math.min(points.length, i+half+1);
-      let su=0, sv=0, sp=0, st=0, n=0;
-      let sth = null;
+      const lo=Math.max(0,i-half), hi=Math.min(points.length,i+half+1);
+      let su=0,sv=0,sp=0,st=0,n=0;
+      let sth=null;
       for (let j=lo;j<hi;j++){
-        const p = points[j];
-        su += p.u; sv += p.v;
-        sp += (p.p ?? 0.5);
-        st += (p.t ?? 0);
+        const p=points[j];
+        su+=p.u; sv+=p.v; sp+=(p.p??0.5); st+=(p.t??0);
         if (Array.isArray(p.theta)){
-          if (!sth) sth = [0,0,0];
-          sth[0] += p.theta[0]; sth[1] += p.theta[1]; sth[2] += p.theta[2];
+          if (!sth) sth=[0,0,0];
+          sth[0]+=p.theta[0]; sth[1]+=p.theta[1]; sth[2]+=p.theta[2];
         }
         n++;
       }
-      const base = { ...points[i] };
-      base.u = su/n; base.v = sv/n; base.p = sp/n; base.t = st/n;
-      if (sth) base.theta = [sth[0]/n, sth[1]/n, sth[2]/n];
+      const base={...points[i]};
+      base.u=su/n; base.v=sv/n; base.p=sp/n; base.t=st/n;
+      if (sth) base.theta=[sth[0]/n, sth[1]/n, sth[2]/n];
       out.push(base);
     }
     return out;
   }
 
   function resampleByStep(points, stepA3Px){
-    if (points.length < 2) return points;
-
-    const spec = a3Spec();
+    if (points.length<2) return points;
+    const spec=a3Spec();
     const stepUV = stepA3Px / Math.max(spec.pxW, spec.pxH);
-
-    const kept = [points[0]];
-    let acc = 0;
-
+    const kept=[points[0]];
+    let acc=0;
     for (let i=1;i<points.length;i++){
-      const a = kept[kept.length-1];
-      const b = points[i];
-      const d = uvDist(a,b);
-      if (d < 1e-12) continue;
+      const a=kept[kept.length-1];
+      const b=points[i];
+      const d=uvDist(a,b);
+      if (d<1e-12) continue;
+      if (d+acc<stepUV){ acc+=d; continue; }
+      const need=stepUV-acc;
+      const tt=need/d;
 
-      if (d + acc < stepUV){ acc += d; continue; }
+      const u=a.u+(b.u-a.u)*tt;
+      const v=a.v+(b.v-a.v)*tt;
+      const p=(a.p??0.5)+((b.p??0.5)-(a.p??0.5))*tt;
+      const t=(a.t??0)+((b.t??0)-(a.t??0))*tt;
 
-      const need = stepUV - acc;
-      const tt = need / d;
-
-      const u = a.u + (b.u - a.u) * tt;
-      const v = a.v + (b.v - a.v) * tt;
-      const p = (a.p ?? 0.5) + ((b.p ?? 0.5) - (a.p ?? 0.5)) * tt;
-      const t = (a.t ?? 0) + ((b.t ?? 0) - (a.t ?? 0)) * tt;
-
-      const np = { ...b, u, v, p, t };
-
+      const np={...b,u,v,p,t};
       if (Array.isArray(a.theta) && Array.isArray(b.theta)){
-        np.theta = [
-          a.theta[0] + (b.theta[0]-a.theta[0]) * tt,
-          a.theta[1] + (b.theta[1]-a.theta[1]) * tt,
-          a.theta[2] + (b.theta[2]-a.theta[2]) * tt,
+        np.theta=[
+          a.theta[0]+(b.theta[0]-a.theta[0])*tt,
+          a.theta[1]+(b.theta[1]-a.theta[1])*tt,
+          a.theta[2]+(b.theta[2]-a.theta[2])*tt
         ];
       }
-
       kept.push(np);
-      acc = 0;
+      acc=0;
     }
     return kept;
   }
 
   function preprocessCurrent(){
-    const step = Math.max(1, Number(ui.ppStep.value)||8);
-    const k = Math.max(1, Number(ui.ppK.value)||1);
+    const step=Math.max(1, Number(ui.ppStep.value)||8);
+    const k=Math.max(1, Number(ui.ppK.value)||1);
 
-    const cleaned = [];
+    const cleaned=[];
     for (const s of strokes){
-      let pts = (s.points||[]).map(p=>({ ...p }));
-
+      let pts=(s.points||[]).map(p=>({ ...p }));
       for (const p of pts){
-        if (typeof p.u !== "number" || typeof p.v !== "number"){
-          const uv = toUV(p.x, p.y);
-          p.u = uv.u; p.v = uv.v;
+        if (typeof p.u!=="number" || typeof p.v!=="number"){
+          const uv=toUV(p.x,p.y); p.u=uv.u; p.v=uv.v;
         }
-        p.u = clamp(p.u,0,1);
-        p.v = clamp(p.v,0,1);
-        if (typeof p.p !== "number") p.p = 0.5;
+        p.u=clamp(p.u,0,1); p.v=clamp(p.v,0,1);
+        if (typeof p.p!=="number") p.p=0.5;
       }
-
-      if (ui.ppSmooth.checked && k>1) pts = movingAverage(pts, k);
-      if (ui.ppResample.checked) pts = resampleByStep(pts, step);
-
+      if (ui.ppSmooth.checked && k>1) pts=movingAverage(pts,k);
+      if (ui.ppResample.checked) pts=resampleByStep(pts,step);
       cleaned.push({ points: pts });
     }
-
     return { meta: buildMeta(), strokes: cleaned };
   }
 
-  // ====== exports ======
-  document.getElementById("exportCleanJson").onclick = ()=>{
-    const cleaned = preprocessCurrent();
-    downloadJSON(cleaned, "strokes_clean.json");
-  };
+  ui.exportCleanJson.onclick = ()=> downloadJSON(preprocessCurrent(), "strokes_clean.json");
 
-  document.getElementById("exportJsonl").onclick = ()=>{
-    const cleaned = preprocessCurrent();
-    const S = cleaned.strokes || [];
-    const lines = [];
-
+  ui.exportJsonl.onclick = ()=>{
+    const cleaned=preprocessCurrent();
+    const S=cleaned.strokes||[];
+    const lines=[];
     for (let si=0; si<S.length; si++){
-      const pts = S[si].points || [];
-      if (pts.length < 2) continue;
-
+      const pts=S[si].points||[];
+      if (pts.length<2) continue;
       for (let i=0;i<pts.length-1;i++){
-        const a = pts[i];
-        const b = pts[i+1];
-
-        const obs = { u:a.u, v:a.v, p:a.p };
-        if (Array.isArray(a.theta)) obs.theta = a.theta;
-
-        const act = { du:(b.u - a.u), dv:(b.v - a.v), pen:1 };
-        lines.push(JSON.stringify({ obs, act }));
+        const a=pts[i], b=pts[i+1];
+        const obs={u:a.u,v:a.v,p:a.p};
+        if (Array.isArray(a.theta)) obs.theta=a.theta;
+        const act={du:(b.u-a.u), dv:(b.v-a.v), pen:1};
+        lines.push(JSON.stringify({obs,act}));
       }
-
-      if (si < S.length - 1){
-        const last = pts[pts.length-1];
-        const nextPts = S[si+1].points || [];
-        if (nextPts.length > 0){
-          const ns = nextPts[0];
-          const obs = { u:last.u, v:last.v, p:last.p };
-          if (Array.isArray(last.theta)) obs.theta = last.theta;
-          const act = { du:(ns.u - last.u), dv:(ns.v - last.v), pen:0 };
-          lines.push(JSON.stringify({ obs, act }));
+      if (si<S.length-1){
+        const last=pts[pts.length-1];
+        const nextPts=S[si+1].points||[];
+        if (nextPts.length>0){
+          const ns=nextPts[0];
+          const obs={u:last.u,v:last.v,p:last.p};
+          if (Array.isArray(last.theta)) obs.theta=last.theta;
+          const act={du:(ns.u-last.u), dv:(ns.v-last.v), pen:0};
+          lines.push(JSON.stringify({obs,act}));
         }
       }
     }
-
-    downloadBlob(new Blob([lines.join("\n")], {type:"text/plain"}), "sequence.jsonl");
+    downloadBlob(new Blob([lines.join("\n")],{type:"text/plain"}), "sequence.jsonl");
   };
 
   function uvToA3Px(u,v){
-    const spec = a3Spec();
-    return { x: Math.round(u*(spec.pxW-1)), y: Math.round(v*(spec.pxH-1)) };
+    const spec=a3Spec();
+    return { x:Math.round(u*(spec.pxW-1)), y:Math.round(v*(spec.pxH-1)) };
   }
-
-  document.getElementById("exportA3Png").onclick = ()=>{
-    const cleaned = preprocessCurrent();
-    const spec = a3Spec();
-
-    const off = document.createElement("canvas");
-    off.width = spec.pxW;
-    off.height = spec.pxH;
-    const h = off.getContext("2d");
-
-    h.fillStyle = "#fff";
-    h.fillRect(0,0,spec.pxW,spec.pxH);
-
-    h.lineCap = "round";
-    h.lineJoin = "round";
-    h.strokeStyle = "#000";
-    h.lineWidth = 3;
+  ui.exportA3Png.onclick = ()=>{
+    const cleaned=preprocessCurrent();
+    const spec=a3Spec();
+    const off=document.createElement("canvas");
+    off.width=spec.pxW; off.height=spec.pxH;
+    const h=off.getContext("2d");
+    h.fillStyle="#fff"; h.fillRect(0,0,spec.pxW,spec.pxH);
+    h.lineCap="round"; h.lineJoin="round"; h.strokeStyle="#000"; h.lineWidth=3;
 
     for (const s of (cleaned.strokes||[])){
-      const pts = s.points || [];
-      if (pts.length < 2) continue;
+      const pts=s.points||[];
+      if (pts.length<2) continue;
       h.beginPath();
-      const p0 = uvToA3Px(pts[0].u, pts[0].v);
-      h.moveTo(p0.x, p0.y);
+      const p0=uvToA3Px(pts[0].u,pts[0].v);
+      h.moveTo(p0.x,p0.y);
       for (let i=1;i<pts.length;i++){
-        const pi = uvToA3Px(pts[i].u, pts[i].v);
-        h.lineTo(pi.x, pi.y);
+        const pi=uvToA3Px(pts[i].u,pts[i].v);
+        h.lineTo(pi.x,pi.y);
       }
       h.stroke();
     }
-
     off.toBlob((blob)=>{
       if (!blob) return;
-      const name = `render_A3_${spec.orientation}_${spec.pxW}x${spec.pxH}.png`;
-      downloadBlob(blob, name);
+      downloadBlob(blob, `render_A3_${spec.orientation}_${spec.pxW}x${spec.pxH}.png`);
     }, "image/png");
   };
 
-  // ====== import ======
-  function ensureUVForImported(data){
-    const meta = data.meta || {};
-    const dr = meta.drawRectCss;
-    if (!dr) return data;
-
-    for (const s of (data.strokes||[])){
-      for (const p of (s.points||[])){
-        if (typeof p.u === "number" && typeof p.v === "number") continue;
-        if (typeof p.x === "number" && typeof p.y === "number"){
-          p.u = clamp((p.x - dr.x)/dr.w, 0, 1);
-          p.v = clamp((p.y - dr.y)/dr.h, 0, 1);
-        }
-      }
-    }
-    return data;
-  }
-
+  // import
   ui.importJson.addEventListener("change", async (e)=>{
-    const file = e.target.files && e.target.files[0];
+    const file=e.target.files && e.target.files[0];
     if (!file) return;
-    const text = await file.text();
+    const text=await file.text();
     let data;
-    try { data = JSON.parse(text); }
-    catch { info.textContent = "Import 실패: JSON 파싱 오류"; ui.importJson.value=""; return; }
+    try { data=JSON.parse(text); }
+    catch { status.textContent="Import 실패(JSON 파싱)"; ui.importJson.value=""; return; }
 
-    data = ensureUVForImported(data);
-
-    const imported = [];
+    const imported=[];
     for (const s of (data.strokes||[])){
-      const pts = (s.points||[]).map(p=>{
-        let u = (typeof p.u === "number") ? p.u : 0;
-        let v = (typeof p.v === "number") ? p.v : 0;
-        u = clamp(u,0,1); v = clamp(v,0,1);
-        const x = drawRect.x + u*drawRect.w;
-        const y = drawRect.y + v*drawRect.h;
-        const out = { x, y, u, v, t: p.t ?? 0, p: p.p ?? 0.5 };
-        if (Array.isArray(p.theta)) out.theta = p.theta.slice();
+      const pts=(s.points||[]).map(p=>{
+        let u=(typeof p.u==="number")?p.u:0;
+        let v=(typeof p.v==="number")?p.v:0;
+        u=clamp(u,0,1); v=clamp(v,0,1);
+        const x=drawRect.x + u*drawRect.w;
+        const y=drawRect.y + v*drawRect.h;
+        const out={ x,y,u,v,t:p.t??0,p:p.p??0.5 };
+        if (Array.isArray(p.theta)) out.theta=p.theta.slice();
         return out;
       });
-      imported.push({ points: pts });
+      imported.push({points:pts});
     }
+    strokes=imported;
+    current=null; lastKept=null; lastRaw=null;
 
-    strokes = imported;
-    current = null; lastKept=null; lastRaw=null;
-
-    lastAngles = [0,0,0];
+    // lastAngles 복원
+    lastAngles=[0,0,0];
     for (let i=strokes.length-1;i>=0;i--){
-      const pts = strokes[i].points || [];
+      const pts=strokes[i].points||[];
       for (let j=pts.length-1;j>=0;j--){
-        if (Array.isArray(pts[j].theta)){ lastAngles = pts[j].theta.slice(); i=-1; break; }
+        if (Array.isArray(pts[j].theta)){ lastAngles=pts[j].theta.slice(); i=-1; break; }
       }
     }
 
     redrawAllInk();
     redrawOverlay();
-    info.textContent = `Imported strokes: ${strokes.length}`;
-    ui.importJson.value = "";
+    status.textContent=`Imported strokes: ${strokes.length}`;
+    ui.importJson.value="";
   });
 
-  // ====== reactive updates ======
-  const reflowIds = [
-    "lockA3","a3Landscape","showFrame",
+  // reactive updates: 메뉴에서 바꿀 때마다 화면/오버레이 즉시 갱신
+  const reflowIds=[
+    "penOnly",
+    "lockA3","a3Landscape","showFrame","clampFrame",
     "showWS","clampWS","showArm","saveTheta",
     "baseU","baseV",
     "l1","l2","l3",
@@ -915,10 +938,11 @@
   ];
   reflowIds.forEach(id=>{
     document.getElementById(id).addEventListener("change", ()=>{
-      drawRect = computeDrawRect(viewW, viewH);
+      drawRect=computeDrawRect(viewW,viewH);
       updateBase();
-      redrawOverlay();
       redrawAllInk();
+      redrawOverlay();
+      status.textContent="updated";
     });
   });
 
