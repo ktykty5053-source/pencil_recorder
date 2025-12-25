@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pencil Recorder (A3 rotate + arm overlay + modal UI)</title>
+  <title>Pencil Recorder (Arm Fix + Auto Reach + Wheel Zoom + Modal UI)</title>
   <style>
     :root{
       --bg:#ffffff; --fg:#111; --muted:#666;
@@ -33,8 +33,8 @@
     button.ghost{ box-shadow:none; background:transparent; }
     #status{ font-size:12px; color:var(--muted); }
 
-    .stage{ position:relative; width:100%; height:calc(100vh - 58px); }
-    /* ✅ 잉크/오버레이 분리: 오버레이가 잉크를 절대 덮지 않게 */
+    .stage{ position:relative; width:100%; height:calc(100vh - 58px); overflow:hidden; }
+    /* 중요: overlay가 잉크를 절대 덮지 않게 */
     canvas{ position:absolute; left:0; top:0; width:100%; height:100%; }
     #ink{ background:#fff; }
     #overlay{ background:transparent; pointer-events:none; }
@@ -48,7 +48,7 @@
     }
     .modal-backdrop.on{ display:flex; }
     .modal{
-      width:min(980px, 100%);
+      width:min(1020px, 100%);
       max-height:min(86vh, 900px);
       overflow:auto;
       background:var(--panel);
@@ -69,10 +69,10 @@
     .modal-body{ padding:12px 14px 16px; }
     .grid{
       display:grid;
-      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      grid-template-columns: repeat(2, minmax(280px, 1fr));
       gap:12px;
     }
-    @media (max-width: 840px){
+    @media (max-width: 900px){
       .grid{ grid-template-columns: 1fr; }
     }
     .card{
@@ -84,14 +84,14 @@
     .card h3{ margin:0 0 10px; font-size:13px; color:#222; }
     .row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0; }
     .row label{ font-size:12px; color:var(--muted); display:flex; gap:8px; align-items:center; }
-    .row input[type="number"]{ width:96px; padding:8px; border:1px solid var(--bd); border-radius:10px; }
-    .row input[type="range"]{ width:180px; }
+    .row input[type="number"]{ width:110px; padding:8px; border:1px solid var(--bd); border-radius:10px; }
+    .row input[type="range"]{ width:200px; }
     .row input[type="checkbox"]{ transform:translateY(0.5px); }
     .row .btnline{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-
     .help{ font-size:12px; color:var(--muted); line-height:1.5; margin-top:8px; }
     .divider{ height:1px; background:var(--bd); margin:10px 0; }
     input[type="file"]{ font-size:12px; }
+    code.k{ font-size:12px; background:#f7f7f7; padding:2px 6px; border-radius:8px; border:1px solid #eee; }
   </style>
 </head>
 <body>
@@ -106,7 +106,7 @@
     </div>
   </div>
 
-  <div class="stage">
+  <div class="stage" id="stage">
     <canvas id="ink"></canvas>
     <canvas id="overlay"></canvas>
   </div>
@@ -125,6 +125,21 @@
         <div class="grid">
 
           <div class="card">
+            <h3>View (확대/축소)</h3>
+            <div class="row">
+              <label>휠로 줌</label>
+              <div class="btnline">
+                <span id="zoomLabel" class="help" style="margin:0">100%</span>
+                <button id="viewReset">View Reset</button>
+              </div>
+            </div>
+            <div class="help">
+              PC: 마우스 휠로 확대/축소 (커서 기준).<br>
+              iPad/터치: 기본은 줌 없이 사용(원하시면 핀치 줌도 추가 가능).
+            </div>
+          </div>
+
+          <div class="card">
             <h3>A3 Frame</h3>
             <div class="row">
               <label><input id="lockA3" type="checkbox" checked> Lock A3 frame</label>
@@ -135,7 +150,7 @@
               <label><input id="clampFrame" type="checkbox" checked> Clamp frame</label>
             </div>
             <div class="help">
-              A3 가로/세로는 프레임 비율 + PNG 출력 해상도(300dpi)를 함께 바꿉니다.
+              가로/세로 전환은 프레임 비율 + PNG 출력 해상도(300dpi)를 같이 바꿉니다.
             </div>
           </div>
 
@@ -153,16 +168,20 @@
             <div class="divider"></div>
 
             <div class="row">
+              <label><input id="autoReach" type="checkbox" checked> Auto-fit Reach (항상 전체 커버)</label>
+            </div>
+
+            <div class="row">
               <label>Base u</label>
-              <input id="baseU" type="number" value="0.50" step="0.01" min="-1" max="2">
+              <input id="baseU" type="number" value="0.50" step="0.01" min="-2" max="2">
             </div>
             <div class="row">
-              <label>Base v (v&gt;1이면 프레임 아래 바깥)</label>
-              <input id="baseV" type="number" value="1.12" step="0.01" min="-1" max="3">
+              <label>Base v (v&gt;1이면 프레임 아래)</label>
+              <input id="baseV" type="number" value="1.06" step="0.01" min="-2" max="3">
             </div>
 
             <div class="help">
-              “로봇팔의 끝(펜)이 프레임 전체에 닿게” 하려면 보통 베이스를 프레임 바깥(아래)으로 두는 게 유리합니다.
+              베이스는 “프레임 밖”을 유지하되, 화면에서 사라지면 자동으로 화면 근처로 당겨서 팔이 항상 보이게 합니다.
             </div>
           </div>
 
@@ -185,12 +204,12 @@
               <label>λ (댐핑)</label><input id="ikLambda" type="number" value="12" min="0" step="1">
             </div>
             <div class="help">
-              팔이 튀면 λ를 올리고, 느리면 iters를 줄이거나 λ를 낮추세요.
+              Auto-fit Reach가 켜져 있으면 링크 길이는 자동으로 늘어날 수 있습니다(프레임 전체 커버를 강제).
             </div>
           </div>
 
           <div class="card">
-            <h3>Record (기록 중 안정화)</h3>
+            <h3>Record (기록 안정화)</h3>
             <div class="row">
               <label><input id="penOnly" type="checkbox" checked> Pen only</label>
               <span class="help" style="margin:0">마우스/손가락 입력 차단</span>
@@ -219,9 +238,6 @@
               <label><input id="ppSmooth" type="checkbox" checked> Smooth k</label>
               <input id="ppK" type="number" value="5" min="1" step="2">
             </div>
-            <div class="help">
-              step(A3px)는 CLEAN/PNG/JSONL에 동일 적용됩니다.
-            </div>
           </div>
 
           <div class="card">
@@ -239,14 +255,15 @@
               <input id="importJson" type="file" accept=".json,application/json">
             </div>
             <div class="help">
-              Import는 저장한 strokes.json을 다시 불러와 화면에서 검수/이어그리기 하는 용도입니다.
+              Import는 저장된 strokes.json을 다시 불러와 검수/이어그리기 용도입니다.
             </div>
           </div>
 
         </div>
 
         <div class="help" style="margin-top:10px">
-          로봇팔이 안 보이면: Menu → Arm/Workspace → Show arm / Workspace 체크가 켜져 있는지 확인하세요.
+          로봇팔이 안 보이면: <code class="k">Arm / Workspace</code>에서 <code class="k">Show arm</code>이 켜져 있는지 확인하세요.<br>
+          그래도 안 보이면 <code class="k">View Reset</code>을 눌러 뷰를 초기화하세요.
         </div>
       </div>
     </div>
@@ -259,23 +276,26 @@
   const A3_LANDSCAPE = { mmW: 420, mmH: 297, pxW: 4961, pxH: 3508, ratio: 420/297, orientation: "landscape" };
 
   // ====== DOM ======
+  const stage = document.getElementById("stage");
   const ink = document.getElementById("ink");
   const ov  = document.getElementById("overlay");
   const ctx = ink.getContext("2d", { desynchronized:true });
   const g   = ov.getContext("2d",  { desynchronized:true });
   const status = document.getElementById("status");
+  const zoomLabel = document.getElementById("zoomLabel");
 
   const ui = {
-    // menu
+    // modal
     openMenu: document.getElementById("openMenu"),
     closeMenu: document.getElementById("closeMenu"),
     backdrop: document.getElementById("backdrop"),
+    viewReset: document.getElementById("viewReset"),
 
     // top
     clear: document.getElementById("clear"),
     downloadRaw: document.getElementById("downloadRaw"),
 
-    // toggles/inputs
+    // settings
     penOnly: document.getElementById("penOnly"),
 
     lockA3: document.getElementById("lockA3"),
@@ -287,6 +307,7 @@
     clampWS: document.getElementById("clampWS"),
     showArm: document.getElementById("showArm"),
     saveTheta: document.getElementById("saveTheta"),
+    autoReach: document.getElementById("autoReach"),
 
     baseU: document.getElementById("baseU"),
     baseV: document.getElementById("baseV"),
@@ -316,7 +337,7 @@
     importJson: document.getElementById("importJson"),
   };
 
-  // ====== modal behavior ======
+  // ====== modal ======
   function openModal(){
     ui.backdrop.classList.add("on");
     ui.backdrop.setAttribute("aria-hidden","false");
@@ -327,18 +348,13 @@
   }
   ui.openMenu.onclick = openModal;
   ui.closeMenu.onclick = closeModal;
-  ui.backdrop.addEventListener("mousedown", (e)=>{
-    if (e.target === ui.backdrop) closeModal();
-  });
-  window.addEventListener("keydown", (e)=>{
-    if (e.key === "Escape") closeModal();
-  });
+  ui.backdrop.addEventListener("mousedown", (e)=>{ if (e.target === ui.backdrop) closeModal(); });
+  window.addEventListener("keydown", (e)=>{ if (e.key === "Escape") closeModal(); });
 
   // ====== helpers ======
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const hypot = (x,y)=>Math.hypot(x,y);
   const nowMs = ()=>performance.now();
-
   function getPressure(e){
     if (typeof e.pressure === "number") return e.pressure;
     if (typeof e.force === "number") return e.force;
@@ -346,18 +362,60 @@
   }
   function a3Spec(){ return ui.a3Landscape.checked ? A3_LANDSCAPE : A3_PORTRAIT; }
   function linkLengths(){ return [Number(ui.l1.value), Number(ui.l2.value), Number(ui.l3.value)]; }
+
   function reachRadii(l1,l2,l3){
     const sum=l1+l2+l3;
     const mx=Math.max(l1,l2,l3);
-    const inner=Math.max(0, mx - (sum - mx));
+    const inner=Math.max(0, mx - (sum - mx)); // 0이면 도넛홀 없음
     return { rMin: inner, rMax: sum };
   }
 
-  // ====== layout ======
+  // ====== Camera (wheel zoom) ======
+  const cam = { s:1, x:0, y:0 }; // world -> screen: screen = world*s + pan
   let dpr=1, viewW=0, viewH=0;
+
+  function resetToScreenTransform(c){ c.setTransform(dpr,0,0,dpr,0,0); }
+  function applyCamTransform(c){ c.setTransform(dpr*cam.s,0,0,dpr*cam.s,dpr*cam.x,dpr*cam.y); }
+  function screenToWorld(sx,sy){ return { x:(sx - cam.x)/cam.s, y:(sy - cam.y)/cam.s }; }
+
+  function setZoomAt(newScale, anchorSx, anchorSy){
+    newScale = clamp(newScale, 0.25, 6);
+    const w = screenToWorld(anchorSx, anchorSy);
+    cam.s = newScale;
+    cam.x = anchorSx - w.x * cam.s;
+    cam.y = anchorSy - w.y * cam.s;
+    updateZoomLabel();
+  }
+
+  function updateZoomLabel(){
+    zoomLabel.textContent = `${Math.round(cam.s*100)}%`;
+  }
+
+  ui.viewReset.onclick = ()=>{
+    cam.s = 1; cam.x = 0; cam.y = 0;
+    updateZoomLabel();
+    redrawAllInk();
+    redrawOverlay();
+  };
+
+  // wheel zoom on stage
+  stage.addEventListener("wheel", (e)=>{
+    e.preventDefault();
+    const rect = stage.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const factor = (e.deltaY < 0) ? 1.10 : (1/1.10);
+    setZoomAt(cam.s * factor, sx, sy);
+    redrawAllInk();
+    redrawOverlay();
+  }, { passive:false });
+
+  // ====== Frame / Base ======
   let drawRect={x:0,y:0,w:0,h:0};
-  let baseUV={u:0.5,v:1.12};
-  let baseCss={x:0,y:0};
+
+  // baseUV: frame-relative, but baseCss is clamped to stay near-screen (so arm is always visible)
+  let baseUV={u:0.50, v:1.06};
+  let baseCss={x:0, y:0};
 
   function computeDrawRect(w,h){
     if (!ui.lockA3.checked) return {x:0,y:0,w,h};
@@ -370,17 +428,26 @@
   function updateBase(){
     baseUV.u = Number(ui.baseU.value);
     baseUV.v = Number(ui.baseV.value);
-    baseCss.x = drawRect.x + drawRect.w * baseUV.u;
-    baseCss.y = drawRect.y + drawRect.h * baseUV.v;
-  }
 
-  function setCanvasSize(c){
-    c.width = Math.floor(viewW*dpr);
-    c.height = Math.floor(viewH*dpr);
-    c.style.width = viewW+"px";
-    c.style.height = viewH+"px";
+    // frame-relative -> world
+    let bx = drawRect.x + drawRect.w * baseUV.u;
+    let by = drawRect.y + drawRect.h * baseUV.v;
+
+    // arm이 화면에서 아예 사라지는 문제 방지:
+    // 프레임 "밖"은 허용하되, 너무 멀어지면 화면 근처로 제한
+    const margin = 80;
+    bx = clamp(bx, -margin, viewW + margin);
+    by = clamp(by, -margin, viewH + margin);
+
+    // clamp한 결과를 baseUV에 다시 반영(저장/표시/일관성 유지)
+    baseUV.u = (bx - drawRect.x) / drawRect.w;
+    baseUV.v = (by - drawRect.y) / drawRect.h;
+    ui.baseU.value = baseUV.u.toFixed(2);
+    ui.baseV.value = baseUV.v.toFixed(2);
+
+    baseCss.x = bx;
+    baseCss.y = by;
   }
-  function applyTransform(context){ context.setTransform(dpr,0,0,dpr,0,0); }
 
   function clampToFrame(x,y){
     return { x:clamp(x, drawRect.x, drawRect.x+drawRect.w),
@@ -437,11 +504,12 @@
 
     return [[dxd1,dxd2,dxd3],[dyd1,dyd2,dyd3]];
   }
+
   let lastAngles=[0,0,0];
 
   function ikSolve(targetX,targetY,theta0){
     const [l1,l2,l3]=linkLengths();
-    const iters=clamp(Number(ui.ikIters.value)||12,1,300);
+    const iters=clamp(Number(ui.ikIters.value)||12,1,400);
     const lambda=Math.max(0, Number(ui.ikLambda.value)||0);
 
     let th=theta0.slice();
@@ -475,23 +543,87 @@
     return th;
   }
 
+  // ====== Auto-fit Reach (프레임 전체를 항상 커버하도록 링크 자동 조정) ======
+  let _autoUpdating = false;
+
+  function ensureNoHole(l1,l2,l3){
+    // rMin=0 되도록 maxLink <= sumOthers 강제
+    let a=l1,b=l2,c=l3;
+    let mx=Math.max(a,b,c);
+    let sum=a+b+c;
+    let others=sum-mx;
+    if (mx <= others) return [a,b,c];
+
+    // 다른 링크들을 늘려서 mx == others 되도록 맞춤
+    const need = mx - others;
+    const smallSum = others;
+    const scale = (smallSum + need) / Math.max(1e-9, smallSum); // >= 1
+    if (a !== mx) a *= scale;
+    if (b !== mx) b *= scale;
+    if (c !== mx) c *= scale;
+    return [a,b,c];
+  }
+
+  function ensureFullCoverage(){
+    if (!ui.autoReach.checked) return;
+
+    const corners = [
+      {x:drawRect.x, y:drawRect.y},
+      {x:drawRect.x+drawRect.w, y:drawRect.y},
+      {x:drawRect.x, y:drawRect.y+drawRect.h},
+      {x:drawRect.x+drawRect.w, y:drawRect.y+drawRect.h},
+    ];
+    const dmax = Math.max(...corners.map(p=>hypot(p.x-baseCss.x, p.y-baseCss.y)));
+    const pad = 8; // 여유
+
+    let [l1,l2,l3] = linkLengths();
+    // 1) 도넛홀 제거
+    [l1,l2,l3] = ensureNoHole(l1,l2,l3);
+
+    // 2) rMax가 4모서리 커버하도록
+    const rMax = l1+l2+l3;
+    const need = dmax + pad;
+    if (rMax < need){
+      const scale = need / Math.max(1e-9, rMax);
+      l1 *= scale; l2 *= scale; l3 *= scale;
+    }
+
+    // 너무 잦은 change 이벤트 루프 방지
+    _autoUpdating = true;
+    ui.l1.value = String(Math.round(l1));
+    ui.l2.value = String(Math.round(l2));
+    ui.l3.value = String(Math.round(l3));
+    _autoUpdating = false;
+  }
+
+  function syncArmToCenter(){
+    // 팔이 항상 프레임 중앙을 향하도록 초기 자세를 맞춰서 "안 보이는" 상황을 방지
+    const cx = drawRect.x + drawRect.w*0.5;
+    const cy = drawRect.y + drawRect.h*0.5;
+    lastAngles = ikSolve(cx, cy, lastAngles);
+  }
+
   // ====== overlay render ======
   function redrawOverlay(){
-    applyTransform(g);
+    resetToScreenTransform(g);
     g.clearRect(0,0,viewW,viewH);
 
-    // frame mask
+    applyCamTransform(g);
+
+    // frame mask (world coords)
     if (ui.showFrame.checked){
       g.save();
       g.fillStyle="rgba(240,240,240,0.92)";
-      g.fillRect(0,0,drawRect.x,viewH);
-      g.fillRect(drawRect.x+drawRect.w,0,viewW-(drawRect.x+drawRect.w),viewH);
-      g.fillRect(drawRect.x,0,drawRect.w,drawRect.y);
-      g.fillRect(drawRect.x,drawRect.y+drawRect.h,drawRect.w,viewH-(drawRect.y+drawRect.h));
+      // outside frame: draw 4 rects
+      const x=drawRect.x, y=drawRect.y, w=drawRect.w, h=drawRect.h;
+      g.fillRect(-5000,-5000, 5000 + x, 20000);
+      g.fillRect(x+w, -5000, 20000, 20000);
+      g.fillRect(x, -5000, w, 5000 + y);
+      g.fillRect(x, y+h, w, 20000);
 
       g.lineWidth=1.25;
       g.strokeStyle="#bbb";
-      g.strokeRect(drawRect.x,drawRect.y,drawRect.w,drawRect.h);
+      g.strokeRect(x,y,w,h);
       g.restore();
     }
 
@@ -515,8 +647,8 @@
       const f=fk(lastAngles,l1,l2,l3);
 
       g.save();
-      g.lineWidth=2;
-      g.strokeStyle="#888";
+      g.lineWidth=2.25;
+      g.strokeStyle="#666";
       g.beginPath();
       g.moveTo(baseCss.x,baseCss.y);
       g.lineTo(f.x1,f.y1);
@@ -524,7 +656,7 @@
       g.lineTo(f.x3,f.y3);
       g.stroke();
 
-      g.fillStyle="#888";
+      g.fillStyle="#666";
       for (const [x,y] of [[baseCss.x,baseCss.y],[f.x1,f.y1],[f.x2,f.y2],[f.x3,f.y3]]){
         g.beginPath(); g.arc(x,y,3,0,Math.PI*2); g.fill();
       }
@@ -539,14 +671,16 @@
   let lastRaw=null;
 
   function redrawAllInk(){
-    applyTransform(ctx);
+    resetToScreenTransform(ctx);
     ctx.clearRect(0,0,viewW,viewH);
+
+    applyCamTransform(ctx);
+
     ctx.save();
     ctx.lineWidth=2.25;
     ctx.strokeStyle="#000";
     ctx.lineCap="round";
     ctx.lineJoin="round";
-
     for (const s of strokes){
       const pts=s.points||[];
       for (let i=1;i<pts.length;i++){
@@ -559,19 +693,33 @@
     ctx.restore();
   }
 
+  // ====== canvas resize ======
+  function setCanvasSize(c){
+    c.width = Math.floor(viewW*dpr);
+    c.height = Math.floor(viewH*dpr);
+    c.style.width = viewW+"px";
+    c.style.height = viewH+"px";
+  }
+
+  function reflowAll(){
+    drawRect = computeDrawRect(viewW, viewH);
+    updateBase();
+    ensureFullCoverage();
+    syncArmToCenter();
+    redrawAllInk();
+    redrawOverlay();
+  }
+
   function resize(){
-    dpr=window.devicePixelRatio||1;
-    viewW=window.innerWidth;
-    viewH=window.innerHeight - document.querySelector(".top").offsetHeight;
+    dpr = window.devicePixelRatio || 1;
+    viewW = stage.clientWidth;
+    viewH = stage.clientHeight;
 
     setCanvasSize(ink);
     setCanvasSize(ov);
 
-    drawRect = computeDrawRect(viewW,viewH);
-    updateBase();
-
-    redrawAllInk();
-    redrawOverlay();
+    // 뷰 리셋은 하지 않음(사용자 줌 유지)
+    reflowAll();
   }
   window.addEventListener("resize", resize);
 
@@ -616,6 +764,8 @@
 
     current.points.push(pt);
 
+    // incremental draw
+    applyCamTransform(ctx);
     if (lastKept){
       ctx.beginPath();
       ctx.moveTo(lastKept.x,lastKept.y);
@@ -623,13 +773,16 @@
       ctx.stroke();
     }
     lastKept=pt;
+
     redrawOverlay();
   }
 
   function addSampleFromEvent(e){
-    const rect=ink.getBoundingClientRect();
-    const x=e.clientX-rect.left;
-    const y=e.clientY-rect.top;
+    const rect=stage.getBoundingClientRect();
+    const sx=e.clientX-rect.left;
+    const sy=e.clientY-rect.top;
+    const w=screenToWorld(sx,sy);
+
     const p=getPressure(e);
     const t=nowMs();
 
@@ -637,7 +790,7 @@
       const dt=Math.max(0.001,(t-lastRaw.t)/1000);
       const vmax=Math.max(50, Number(ui.recMaxSpeed.value)||2500);
       const maxDist=vmax*dt;
-      const dx=x-lastRaw.x, dy=y-lastRaw.y;
+      const dx=w.x-lastRaw.x, dy=w.y-lastRaw.y;
       const dist=Math.hypot(dx,dy);
 
       if (dist>maxDist){
@@ -651,13 +804,13 @@
             p:lastRaw.p+(p-lastRaw.p)*u
           });
         }
-        lastRaw={x,y,t,p};
+        lastRaw={x:w.x,y:w.y,t,p};
         return;
       }
     }
 
-    processSample({x,y,t,p});
-    lastRaw={x,y,t,p};
+    processSample({x:w.x,y:w.y,t,p});
+    lastRaw={x:w.x,y:w.y,t,p};
   }
 
   function startStroke(e){
@@ -679,10 +832,14 @@
     status.textContent = `strokes: ${strokes.length}`;
   }
 
-  ink.addEventListener("pointerdown",(e)=>{ e.preventDefault(); ink.setPointerCapture(e.pointerId); startStroke(e); },{passive:false});
-  ink.addEventListener("pointermove",(e)=>{ e.preventDefault(); moveStroke(e); },{passive:false});
-  ink.addEventListener("pointerup",(e)=>{ e.preventDefault(); endStroke(); },{passive:false});
-  ink.addEventListener("pointercancel",(e)=>{ e.preventDefault(); endStroke(); },{passive:false});
+  stage.addEventListener("pointerdown",(e)=>{
+    e.preventDefault();
+    stage.setPointerCapture(e.pointerId);
+    startStroke(e);
+  },{passive:false});
+  stage.addEventListener("pointermove",(e)=>{ e.preventDefault(); moveStroke(e); },{passive:false});
+  stage.addEventListener("pointerup",(e)=>{ e.preventDefault(); endStroke(); },{passive:false});
+  stage.addEventListener("pointercancel",(e)=>{ e.preventDefault(); endStroke(); },{passive:false});
 
   // ====== meta/export ======
   function buildMeta(){
@@ -692,8 +849,9 @@
     return {
       createdAt:new Date().toISOString(),
       a3:{ orientation:spec.orientation, mm:{w:spec.mmW,h:spec.mmH}, dpiTarget:300, pxTarget:{w:spec.pxW,h:spec.pxH} },
-      drawRectCss:drawRect,
-      arm:{ linksPx:{l1,l2,l3}, workspace:{rMin,rMax}, baseUV:{...baseUV}, baseCss:{...baseCss} },
+      drawRectWorld:drawRect,
+      camera:{ s:cam.s, x:cam.x, y:cam.y },
+      arm:{ linksPx:{l1,l2,l3}, workspace:{rMin,rMax}, baseUV:{...baseUV}, baseWorld:{...baseCss} },
       settings:{
         penOnly:ui.penOnly.checked,
         lockA3:ui.lockA3.checked,
@@ -704,6 +862,7 @@
         clampWS:ui.clampWS.checked,
         showArm:ui.showArm.checked,
         saveTheta:ui.saveTheta.checked,
+        autoReach:ui.autoReach.checked,
         ikIters:Number(ui.ikIters.value),
         ikLambda:Number(ui.ikLambda.value),
         record:{
@@ -736,7 +895,8 @@
 
   ui.downloadRaw.onclick = ()=> downloadJSON({meta:buildMeta(),strokes}, "strokes.json");
   ui.clear.onclick = ()=>{
-    strokes=[]; current=null; lastKept=null; lastRaw=null; lastAngles=[0,0,0];
+    strokes=[]; current=null; lastKept=null; lastRaw=null;
+    lastAngles=[0,0,0];
     redrawAllInk(); redrawOverlay();
     status.textContent="cleared";
   };
@@ -859,6 +1019,7 @@
     const spec=a3Spec();
     return { x:Math.round(u*(spec.pxW-1)), y:Math.round(v*(spec.pxH-1)) };
   }
+
   ui.exportA3Png.onclick = ()=>{
     const cleaned=preprocessCurrent();
     const spec=a3Spec();
@@ -880,6 +1041,7 @@
       }
       h.stroke();
     }
+
     off.toBlob((blob)=>{
       if (!blob) return;
       downloadBlob(blob, `render_A3_${spec.orientation}_${spec.pxW}x${spec.pxH}.png`);
@@ -912,7 +1074,7 @@
     strokes=imported;
     current=null; lastKept=null; lastRaw=null;
 
-    // lastAngles 복원
+    // lastAngles 복원(가능하면)
     lastAngles=[0,0,0];
     for (let i=strokes.length-1;i>=0;i--){
       const pts=strokes[i].points||[];
@@ -927,26 +1089,26 @@
     ui.importJson.value="";
   });
 
-  // reactive updates: 메뉴에서 바꿀 때마다 화면/오버레이 즉시 갱신
+  // reactive updates
   const reflowIds=[
     "penOnly",
     "lockA3","a3Landscape","showFrame","clampFrame",
     "showWS","clampWS","showArm","saveTheta",
+    "autoReach",
     "baseU","baseV",
     "l1","l2","l3",
     "ikIters","ikLambda"
   ];
   reflowIds.forEach(id=>{
     document.getElementById(id).addEventListener("change", ()=>{
-      drawRect=computeDrawRect(viewW,viewH);
-      updateBase();
-      redrawAllInk();
-      redrawOverlay();
+      if (_autoUpdating) return;
+      reflowAll();
       status.textContent="updated";
     });
   });
 
   // init
+  updateZoomLabel();
   resize();
 })();
 </script>
